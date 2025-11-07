@@ -1,8 +1,11 @@
 import { useState } from "react";
-import { Sparkles, FileText, MessageSquare } from "lucide-react";
+import { Sparkles, FileText, MessageSquare, Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PDFUpload } from "@/components/PDFUpload";
+import { VideoUpload } from "@/components/VideoUpload";
 import { SummaryDisplay } from "@/components/SummaryDisplay";
+import { VideoSummaryDisplay } from "@/components/VideoSummaryDisplay";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import heroBg from "@/assets/hero-bg.jpg";
@@ -12,6 +15,9 @@ const Index = () => {
   const [summary, setSummary] = useState<string | null>(null);
   const [fileName, setFileName] = useState("");
   const [pdfText, setPdfText] = useState("");
+  const [videoTranscript, setVideoTranscript] = useState("");
+  const [timestamps, setTimestamps] = useState<Array<{ time: string; text: string }>>([]);
+  const [contentType, setContentType] = useState<"pdf" | "video">("pdf");
   const { toast } = useToast();
 
   const extractTextFromPDF = async (file: File): Promise<string> => {
@@ -85,10 +91,130 @@ const Index = () => {
     }
   };
 
+  const handleVideoSelect = async (file: File) => {
+    setIsProcessing(true);
+    setFileName(file.name);
+    setContentType("video");
+
+    try {
+      // Create form data for video transcription
+      const formData = new FormData();
+      formData.append('audio', file);
+
+      // Call transcription function
+      const { data: transcriptData, error: transcriptError } = await supabase.functions.invoke(
+        "transcribe-video",
+        {
+          body: formData,
+        }
+      );
+
+      if (transcriptError) throw transcriptError;
+
+      setVideoTranscript(transcriptData.text);
+      setTimestamps(transcriptData.timestamps || []);
+
+      // Call summarization function
+      const { data: summaryData, error: summaryError } = await supabase.functions.invoke(
+        "summarize-video",
+        {
+          body: {
+            transcript: transcriptData.text,
+            videoName: file.name,
+            timestamps: transcriptData.timestamps,
+          },
+        }
+      );
+
+      if (summaryError) throw summaryError;
+
+      setSummary(summaryData.summary);
+      toast({
+        title: "Success!",
+        description: "Your video has been summarized",
+      });
+    } catch (error) {
+      console.error("Error processing video:", error);
+      toast({
+        title: "Error",
+        description: "Failed to process video. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleYouTubeSubmit = async (url: string) => {
+    setIsProcessing(true);
+    setFileName("YouTube Video");
+    setContentType("video");
+
+    try {
+      // Call YouTube transcript function
+      const { data: transcriptData, error: transcriptError } = await supabase.functions.invoke(
+        "youtube-transcript",
+        {
+          body: { youtubeUrl: url },
+        }
+      );
+
+      if (transcriptError) throw transcriptError;
+
+      setVideoTranscript(transcriptData.text);
+      setTimestamps(transcriptData.timestamps || []);
+
+      // Call summarization function
+      const { data: summaryData, error: summaryError } = await supabase.functions.invoke(
+        "summarize-video",
+        {
+          body: {
+            transcript: transcriptData.text,
+            videoName: "YouTube Video",
+            timestamps: transcriptData.timestamps,
+          },
+        }
+      );
+
+      if (summaryError) throw summaryError;
+
+      setSummary(summaryData.summary);
+      toast({
+        title: "Success!",
+        description: "YouTube video has been summarized",
+      });
+    } catch (error) {
+      console.error("Error processing YouTube video:", error);
+      toast({
+        title: "Error",
+        description: "Failed to process YouTube video. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleAskVideoQuestion = async (question: string): Promise<string> => {
+    try {
+      const { data, error } = await supabase.functions.invoke("answer-question", {
+        body: { question, context: videoTranscript },
+      });
+
+      if (error) throw error;
+      return data.answer;
+    } catch (error) {
+      console.error("Error answering question:", error);
+      throw error;
+    }
+  };
+
   const handleReset = () => {
     setSummary(null);
     setFileName("");
     setPdfText("");
+    setVideoTranscript("");
+    setTimestamps([]);
   };
 
   return (
@@ -126,14 +252,14 @@ const Index = () => {
               </div>
               
               <h2 className="text-5xl font-bold tracking-tight">
-                Transform PDFs into
+                Transform Content into
                 <span className="block bg-gradient-primary bg-clip-text text-transparent">
                   Actionable Insights
                 </span>
               </h2>
               
               <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-                Upload any PDF and get instant AI-powered summaries, key insights, and interactive Q&A
+                Upload PDFs or videos and get instant AI-powered summaries, key insights, and interactive Q&A
               </p>
             </div>
 
@@ -147,15 +273,39 @@ const Index = () => {
                   backgroundPosition: 'center',
                 }}
               />
-              <PDFUpload onFileSelect={handleFileSelect} isProcessing={isProcessing} />
+              
+              <Tabs defaultValue="pdf" className="w-full">
+                <TabsList className="grid w-full grid-cols-2 mb-6">
+                  <TabsTrigger value="pdf" className="gap-2">
+                    <FileText className="h-4 w-4" />
+                    PDF Document
+                  </TabsTrigger>
+                  <TabsTrigger value="video" className="gap-2">
+                    <Video className="h-4 w-4" />
+                    Video
+                  </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="pdf">
+                  <PDFUpload onFileSelect={handleFileSelect} isProcessing={isProcessing} />
+                </TabsContent>
+
+                <TabsContent value="video">
+                  <VideoUpload 
+                    onVideoSelect={handleVideoSelect}
+                    onYouTubeSubmit={handleYouTubeSubmit}
+                    isProcessing={isProcessing}
+                  />
+                </TabsContent>
+              </Tabs>
             </div>
 
             {/* Features */}
             <div className="grid md:grid-cols-3 gap-6 mt-12">
               {[
-                { icon: Sparkles, title: "AI Summarization", desc: "Get concise summaries of lengthy documents" },
-                { icon: MessageSquare, title: "Interactive Q&A", desc: "Ask questions about your document" },
-                { icon: FileText, title: "Key Insights", desc: "Extract the most important information" },
+                { icon: Sparkles, title: "AI Summarization", desc: "Get concise summaries of lengthy content" },
+                { icon: MessageSquare, title: "Interactive Q&A", desc: "Ask questions about your content" },
+                { icon: Video, title: "Multi-Format Support", desc: "PDFs, videos, and YouTube links" },
               ].map((feature, i) => (
                 <div key={i} className="p-6 rounded-xl bg-card border border-border/50 shadow-sm hover:shadow-md transition-all">
                   <div className="p-2 rounded-lg bg-primary/10 w-fit mb-4">
@@ -169,11 +319,20 @@ const Index = () => {
           </div>
         ) : (
           <div className="max-w-7xl mx-auto">
-            <SummaryDisplay
-              summary={summary}
-              fileName={fileName}
-              onAskQuestion={handleAskQuestion}
-            />
+            {contentType === "pdf" ? (
+              <SummaryDisplay
+                summary={summary}
+                fileName={fileName}
+                onAskQuestion={handleAskQuestion}
+              />
+            ) : (
+              <VideoSummaryDisplay
+                summary={summary}
+                videoName={fileName}
+                timestamps={timestamps}
+                onAskQuestion={handleAskVideoQuestion}
+              />
+            )}
           </div>
         )}
       </main>
