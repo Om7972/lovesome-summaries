@@ -208,11 +208,14 @@ const Index = () => {
       
       const errorMessage = error?.message || '';
       const isQuotaError = errorMessage.includes('429') || errorMessage.includes('quota');
+      const isCaptionError = errorMessage.includes('captions') || errorMessage.includes('Transcript');
       
       toast({
         title: "Error",
         description: isQuotaError
           ? "OpenAI API quota exceeded. Please add credits to your OpenAI account."
+          : isCaptionError
+          ? "This video doesn't have captions available. Try a different video or upload the video file directly."
           : "Failed to process YouTube video. Please try again.",
         variant: "destructive",
       });
