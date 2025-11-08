@@ -24,8 +24,11 @@ const Index = () => {
     try {
       const pdfjsLib = await import('pdfjs-dist');
       
-      // Set worker source
-      pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+      // Set worker source using Vite's URL constructor for local worker
+      pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+        'pdfjs-dist/build/pdf.worker.mjs',
+        import.meta.url
+      ).toString();
       
       const arrayBuffer = await file.arrayBuffer();
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
@@ -143,11 +146,18 @@ const Index = () => {
         title: "Success!",
         description: "Your video has been summarized",
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error processing video:", error);
+      
+      // Check if it's an OpenAI quota error
+      const errorMessage = error?.message || '';
+      const isQuotaError = errorMessage.includes('429') || errorMessage.includes('quota');
+      
       toast({
         title: "Error",
-        description: "Failed to process video. Please try again.",
+        description: isQuotaError 
+          ? "OpenAI API quota exceeded. Please add credits to your OpenAI account or contact support." 
+          : "Failed to process video. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -193,11 +203,17 @@ const Index = () => {
         title: "Success!",
         description: "YouTube video has been summarized",
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error processing YouTube video:", error);
+      
+      const errorMessage = error?.message || '';
+      const isQuotaError = errorMessage.includes('429') || errorMessage.includes('quota');
+      
       toast({
         title: "Error",
-        description: "Failed to process YouTube video. Please try again.",
+        description: isQuotaError
+          ? "OpenAI API quota exceeded. Please add credits to your OpenAI account."
+          : "Failed to process YouTube video. Please try again.",
         variant: "destructive",
       });
     } finally {
