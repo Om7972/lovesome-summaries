@@ -19,46 +19,56 @@ serve(async (req) => {
 
     console.log('Summarizing video transcript:', videoName);
 
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    if (!LOVABLE_API_KEY) {
-      throw new Error('LOVABLE_API_KEY not configured');
+    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
+    if (!OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY not configured');
     }
 
-    // Create prompt for summarization
-    const prompt = `You are an expert video content analyzer. Summarize the following video transcript in a clear, concise manner.
+    // Enhanced prompt for better video summarization
+    const prompt = `You are an expert video content analyzer. Create a comprehensive, detailed summary of the following video transcript.
 
 Video: ${videoName || 'Untitled'}
+
+Your summary should include:
+1. **Overview**: Brief introduction of the video's main purpose
+2. **Main Topics**: List the key subjects covered with detailed explanations
+3. **Key Points**: Comprehensive breakdown of all important information discussed
+4. **Detailed Insights**: Notable takeaways, conclusions, and analysis
+5. **Action Items**: Any specific recommendations, steps, or next actions mentioned
+6. **Additional Context**: Any supporting details, examples, or data provided
+
+Format your response in clear sections with bullet points and sub-points for easy reading. Be thorough and capture all significant content.
+
 Transcript:
-${transcript}
+${transcript.substring(0, 100000)}`;
 
-Create a comprehensive summary that:
-1. Captures the main topics and key points
-2. Highlights important insights or takeaways
-3. Is structured in clear bullet points or paragraphs
-4. Maintains the logical flow of the content
-
-Provide the summary:`;
-
-    // Call Lovable AI Gateway
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    // Call OpenAI for summarization
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
+        model: 'gpt-5-mini-2025-08-07',
         messages: [
-          { role: 'system', content: 'You are a helpful assistant that creates concise, informative summaries of video content.' },
-          { role: 'user', content: prompt }
+          {
+            role: 'system',
+            content: 'You are an expert video content summarizer. Create comprehensive, detailed, well-structured summaries that capture all key points, insights, and actionable information from video transcripts. Be thorough and informative.'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
         ],
+        max_completion_tokens: 3000,
       }),
     });
 
     if (!response.ok) {
       const error = await response.text();
-      console.error('Lovable AI error:', error);
-      throw new Error(`AI Gateway error: ${response.status}`);
+      console.error('OpenAI API error:', error);
+      throw new Error(`OpenAI API error: ${response.status}`);
     }
 
     const data = await response.json();

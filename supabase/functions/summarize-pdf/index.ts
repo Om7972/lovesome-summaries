@@ -19,30 +19,31 @@ serve(async (req) => {
 
     console.log(`Processing PDF: ${fileName}`);
 
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    if (!LOVABLE_API_KEY) {
-      throw new Error('LOVABLE_API_KEY not configured');
+    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
+    if (!OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY not configured');
     }
 
-    // Call Lovable AI for summarization
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    // Call OpenAI for summarization
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
+        model: 'gpt-5-mini-2025-08-07',
         messages: [
           {
             role: 'system',
-            content: 'You are an expert document summarizer. Create concise, well-structured summaries that capture the key points, main arguments, and important details of documents. Format your summaries with clear sections and bullet points where appropriate.'
+            content: 'You are an expert document summarizer. Create detailed, well-structured summaries that capture all key points, main arguments, important details, and actionable insights from documents. Use clear sections, bullet points, and highlight critical information. Be comprehensive yet concise.'
           },
           {
             role: 'user',
-            content: `Please summarize the following document:\n\n${text.substring(0, 50000)}`
+            content: `Please provide a comprehensive summary of the following document:\n\n${text.substring(0, 100000)}`
           }
         ],
+        max_completion_tokens: 2000,
       }),
     });
 

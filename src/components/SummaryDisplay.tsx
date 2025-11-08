@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FileText, MessageSquare, Sparkles, Send, Loader2 } from "lucide-react";
+import { FileText, MessageSquare, Sparkles, Send, Loader2, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -50,6 +50,19 @@ export const SummaryDisplay = ({ summary, fileName, onAskQuestion }: SummaryDisp
     }
   };
 
+  const handleExport = () => {
+    const content = `Document: ${fileName}\n\nSummary:\n${summary}\n\n${chatHistory.length > 0 ? '\nQ&A History:\n' + chatHistory.map(msg => `${msg.role === 'user' ? 'Q' : 'A'}: ${msg.content}`).join('\n\n') : ''}`;
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${fileName.replace('.pdf', '')}_summary.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="grid lg:grid-cols-2 gap-8">
       {/* Summary Section */}
@@ -62,6 +75,15 @@ export const SummaryDisplay = ({ summary, fileName, onAskQuestion }: SummaryDisp
             <h2 className="text-xl font-bold">Document Summary</h2>
             <p className="text-sm text-muted-foreground truncate">{fileName}</p>
           </div>
+          <Button
+            onClick={handleExport}
+            variant="outline"
+            size="sm"
+            className="gap-2"
+          >
+            <Download className="h-4 w-4" />
+            Export
+          </Button>
           <Sparkles className="h-5 w-5 text-accent" />
         </div>
         

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Video, MessageSquare, Sparkles, Send, Loader2, List, AlignLeft } from "lucide-react";
+import { Video, MessageSquare, Sparkles, Send, Loader2, List, AlignLeft, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -73,6 +73,20 @@ export const VideoSummaryDisplay = ({
     return <p className="leading-relaxed whitespace-pre-wrap">{text}</p>;
   };
 
+  const handleExport = () => {
+    const timestampText = timestamps.length > 0 ? '\n\nTimestamps:\n' + timestamps.map(t => `[${t.time}] ${t.text}`).join('\n') : '';
+    const content = `Video: ${videoName}\n\nSummary:\n${summary}${timestampText}\n\n${chatHistory.length > 0 ? '\nQ&A History:\n' + chatHistory.map(msg => `${msg.role === 'user' ? 'Q' : 'A'}: ${msg.content}`).join('\n\n') : ''}`;
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${videoName.replace(/[^a-z0-9]/gi, '_')}_summary.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="grid lg:grid-cols-2 gap-8">
       {/* Summary Section */}
@@ -87,7 +101,18 @@ export const VideoSummaryDisplay = ({
               <p className="text-sm text-muted-foreground truncate">{videoName}</p>
             </div>
           </div>
-          <Sparkles className="h-5 w-5 text-accent" />
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={handleExport}
+              variant="outline"
+              size="sm"
+              className="gap-2"
+            >
+              <Download className="h-4 w-4" />
+              Export
+            </Button>
+            <Sparkles className="h-5 w-5 text-accent" />
+          </div>
         </div>
 
         <div className="flex gap-2 mb-4">
