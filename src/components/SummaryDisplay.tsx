@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FileText, MessageSquare, Sparkles, Send, Loader2 } from "lucide-react";
+import { FileText, MessageSquare, Sparkles, Send, Loader2, Youtube, Clock, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,11 @@ interface SummaryDisplayProps {
 
 interface ChatMessage {
   role: "user" | "assistant";
+  content: string;
+}
+
+interface TimestampedContent {
+  timestamp: string;
   content: string;
 }
 
@@ -50,16 +55,98 @@ export const SummaryDisplay = ({ summary, fileName, onAskQuestion }: SummaryDisp
     }
   };
 
+  // Parse timestamped content for video summaries
+  const parseTimestampedContent = (text: string): TimestampedContent[] => {
+    const lines = text.split('\n');
+    const timestampedContent: TimestampedContent[] = [];
+    
+    lines.forEach(line => {
+      // Match timestamp patterns like [00:15] or [12:30:45]
+      const timestampRegex = /\[(\d{1,2}:\d{2}(?::\d{2})?)\]/;
+      const match = line.match(timestampRegex);
+      
+      if (match) {
+        const timestamp = match[1];
+        const content = line.replace(timestampRegex, '').trim();
+        timestampedContent.push({ timestamp, content });
+      }
+    });
+    
+    return timestampedContent;
+  };
+
+  // Check if this is a video summary by looking for timestamp patterns
+  const isVideoSummary = summary.includes("[00:") || summary.includes("Timestamp") || summary.includes("timestamp");
+  const timestampedContent = isVideoSummary ? parseTimestampedContent(summary) : [];
+
+  // Render summary content with special handling for timestamps
+  const renderSummaryContent = () => {
+    if (isVideoSummary && timestampedContent.length > 0) {
+      return (
+        <div className="space-y-4">
+          {timestampedContent.map((item, index) => (
+            <div key={index} className="flex items-start gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors">
+              <Button 
+                size="sm" 
+                variant="outline" 
+                className="h-8 w-8 p-0 flex-shrink-0"
+                onClick={() => {
+                  // In a real implementation, this would seek to the timestamp in the video
+                  console.log(`Seek to ${item.timestamp}`);
+                }}
+              >
+                <Play className="h-3 w-3" />
+              </Button>
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <Clock className="h-4 w-4 text-primary" />
+                  <span className="font-mono text-sm bg-primary/10 px-2 py-0.5 rounded">
+                    {item.timestamp}
+                  </span>
+                </div>
+                <p className="text-foreground leading-relaxed">
+                  {item.content}
+                </p>
+              </div>
+            </div>
+          ))}
+          
+          {/* Render any remaining non-timestamped content */}
+          {summary.split('\n').map((line, index) => {
+            if (!line.match(/\[\d{1,2}:\d{2}/)) {
+              return (
+                <p key={index} className="text-foreground leading-relaxed whitespace-pre-wrap">
+                  {line}
+                </p>
+              );
+            }
+            return null;
+          })}
+        </div>
+      );
+    }
+    
+    return (
+      <p className="text-foreground leading-relaxed whitespace-pre-wrap">
+        {summary}
+      </p>
+    );
+  };
+
   return (
     <div className="grid lg:grid-cols-2 gap-8">
       {/* Summary Section */}
       <Card className="p-8 bg-gradient-card backdrop-blur-sm border-border/50 shadow-lg">
         <div className="flex items-center gap-3 mb-6">
           <div className="p-2 rounded-lg bg-primary/10">
-            <FileText className="h-5 w-5 text-primary" />
+            {fileName.includes("Video") || fileName.includes("YouTube") ? (
+              <Youtube className="h-5 w-5 text-red-500" />
+            ) : (
+              <FileText className="h-5 w-5 text-primary" />
+            )}
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="text-xl font-bold">Document Summary</h2>
+            <h2 className="text-xl font-bold">Content Summary</h2>
             <p className="text-sm text-muted-foreground truncate">{fileName}</p>
           </div>
           <Sparkles className="h-5 w-5 text-accent" />
@@ -67,9 +154,7 @@ export const SummaryDisplay = ({ summary, fileName, onAskQuestion }: SummaryDisp
         
         <ScrollArea className="h-[400px] pr-4">
           <div className="prose prose-sm max-w-none">
-            <p className="text-foreground leading-relaxed whitespace-pre-wrap">
-              {summary}
-            </p>
+            {renderSummaryContent()}
           </div>
         </ScrollArea>
       </Card>
@@ -90,7 +175,7 @@ export const SummaryDisplay = ({ summary, fileName, onAskQuestion }: SummaryDisp
                 <MessageSquare className="h-8 w-8 text-muted-foreground" />
               </div>
               <p className="text-sm text-muted-foreground">
-                Ask me anything about this document
+                Ask me anything about this content
               </p>
             </div>
           ) : (
@@ -126,7 +211,7 @@ export const SummaryDisplay = ({ summary, fileName, onAskQuestion }: SummaryDisp
 
         <div className="flex gap-2">
           <Input
-            placeholder="Ask about the document..."
+            placeholder="Ask about the content..."
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             onKeyPress={handleKeyPress}

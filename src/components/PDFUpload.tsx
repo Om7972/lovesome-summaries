@@ -104,6 +104,7 @@ export const PDFUpload = ({ onFileSelect, isProcessing }: PDFUploadProps) => {
               onChange={handleFileInput}
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
               disabled={isProcessing}
+              title="Upload a PDF file"
             />
           </>
         )}

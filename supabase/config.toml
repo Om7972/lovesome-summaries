@@ -1,1 +1,13 @@
 project_id = "gtgkkjfwipgfdbyfmzyb"
+
+[functions.transcribe-video]
+import_map = "./functions/transcribe-video/deno.json"
+
+[functions.summarize-video]
+import_map = "./functions/summarize-video/deno.json"
+
+[functions.answer-question]
+import_map = "./functions/answer-question/deno.json"
+
+[functions.summarize-pdf]
+import_map = "./functions/summarize-pdf/deno.json"

@@ -1,13 +1,15 @@
 import { useState } from "react";
-import { Sparkles, FileText, MessageSquare } from "lucide-react";
+import { Sparkles, FileText, MessageSquare, Youtube, Film } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PDFUpload } from "@/components/PDFUpload";
+import { VideoUpload } from "@/components/VideoUpload";
 import { SummaryDisplay } from "@/components/SummaryDisplay";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import heroBg from "@/assets/hero-bg.jpg";
 
 const Index = () => {
+  const [activeTab, setActiveTab] = useState<"pdf" | "video">("pdf");
   const [isProcessing, setIsProcessing] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
   const [fileName, setFileName] = useState("");
@@ -61,6 +63,46 @@ const Index = () => {
       toast({
         title: "Error",
         description: "Failed to process PDF. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleVideoSubmit = async (videoSource: string, type: "youtube" | "upload") => {
+    setIsProcessing(true);
+    setFileName(type === "youtube" ? "YouTube Video" : "Uploaded Video");
+
+    try {
+      // Step 1: Transcribe the video
+      const { data: transcriptionData, error: transcriptionError } = await supabase.functions.invoke("transcribe-video", {
+        body: { videoUrl: videoSource, videoType: type },
+      });
+
+      if (transcriptionError) {
+        throw transcriptionError;
+      }
+
+      // Step 2: Summarize the transcription
+      const { data: summaryData, error: summaryError } = await supabase.functions.invoke("summarize-video", {
+        body: { transcription: transcriptionData.transcription, videoUrl: videoSource },
+      });
+
+      if (summaryError) {
+        throw summaryError;
+      }
+
+      setSummary(summaryData.summary);
+      toast({
+        title: "Success!",
+        description: "Your video has been processed and summarized",
+      });
+    } catch (error) {
+      console.error("Error processing video:", error);
+      toast({
+        title: "Error",
+        description: "Failed to process video. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -126,36 +168,60 @@ const Index = () => {
               </div>
               
               <h2 className="text-5xl font-bold tracking-tight">
-                Transform PDFs into
+                Transform Documents & Videos into
                 <span className="block bg-gradient-primary bg-clip-text text-transparent">
                   Actionable Insights
                 </span>
               </h2>
               
               <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-                Upload any PDF and get instant AI-powered summaries, key insights, and interactive Q&A
+                Upload PDFs or YouTube videos and get instant AI-powered summaries, key insights, and interactive Q&A
               </p>
+            </div>
+
+            {/* Document Type Selector */}
+            <div className="flex justify-center mb-8">
+              <div className="inline-flex rounded-lg border border-border bg-muted p-1">
+                <Button
+                  variant={activeTab === "pdf" ? "default" : "ghost"}
+                  className="flex items-center gap-2"
+                  onClick={() => setActiveTab("pdf")}
+                >
+                  <FileText className="h-4 w-4" />
+                  PDF Document
+                </Button>
+                <Button
+                  variant={activeTab === "video" ? "default" : "ghost"}
+                  className="flex items-center gap-2"
+                  onClick={() => setActiveTab("video")}
+                >
+                  <Youtube className="h-4 w-4" />
+                  Video Content
+                </Button>
+              </div>
             </div>
 
             {/* Upload Section */}
             <div className="relative">
               <div 
-                className="absolute inset-0 -z-10 opacity-30 blur-3xl"
+                className="absolute inset-0 -z-10 opacity-30 blur-3xl hero-bg"
                 style={{
                   backgroundImage: `url(${heroBg})`,
-                  backgroundSize: 'cover',
-                  backgroundPosition: 'center',
                 }}
               />
-              <PDFUpload onFileSelect={handleFileSelect} isProcessing={isProcessing} />
+              {activeTab === "pdf" ? (
+                <PDFUpload onFileSelect={handleFileSelect} isProcessing={isProcessing} />
+              ) : (
+                <VideoUpload onVideoSubmit={handleVideoSubmit} isProcessing={isProcessing} />
+              )}
             </div>
 
             {/* Features */}
             <div className="grid md:grid-cols-3 gap-6 mt-12">
               {[
-                { icon: Sparkles, title: "AI Summarization", desc: "Get concise summaries of lengthy documents" },
-                { icon: MessageSquare, title: "Interactive Q&A", desc: "Ask questions about your document" },
-                { icon: FileText, title: "Key Insights", desc: "Extract the most important information" },
+                { icon: Sparkles, title: "AI Summarization", desc: "Get concise summaries of documents and videos" },
+                { icon: MessageSquare, title: "Interactive Q&A", desc: "Ask questions about your content" },
+                { icon: Film, title: "Video Processing", desc: "Transcribe and summarize YouTube videos" },
               ].map((feature, i) => (
                 <div key={i} className="p-6 rounded-xl bg-card border border-border/50 shadow-sm hover:shadow-md transition-all">
                   <div className="p-2 rounded-lg bg-primary/10 w-fit mb-4">
