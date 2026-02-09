@@ -56,17 +56,21 @@ export const VideoUpload = ({ onVideoSubmit, isProcessing }: VideoUploadProps) =
 
     const files = Array.from(e.dataTransfer.files);
     const videoFile = files.find(file => 
-      file.type.startsWith("video/") && 
-      (file.type.includes("mp4") || file.type.includes("webm") || file.type.includes("ogg"))
+      file.type.startsWith("video/") || 
+      file.name.endsWith(".mp4") || 
+      file.name.endsWith(".webm") || 
+      file.name.endsWith(".ogg") ||
+      file.name.endsWith(".mov") ||
+      file.name.endsWith(".avi")
     );
 
     if (videoFile) {
-      // For now, we'll just simulate processing
+      // Pass the file directly via blob URL
       onVideoSubmit(URL.createObjectURL(videoFile), "upload");
     } else {
       toast({
         title: "Invalid file type",
-        description: "Please upload a valid video file (MP4, WebM, OGG)",
+        description: "Please upload a valid video file (MP4, WebM, OGG, MOV, AVI)",
         variant: "destructive",
       });
     }
@@ -74,13 +78,17 @@ export const VideoUpload = ({ onVideoSubmit, isProcessing }: VideoUploadProps) =
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file && file.type.startsWith("video/") && 
-        (file.type.includes("mp4") || file.type.includes("webm") || file.type.includes("ogg"))) {
+    if (file && (file.type.startsWith("video/") || 
+        file.name.endsWith(".mp4") || 
+        file.name.endsWith(".webm") || 
+        file.name.endsWith(".ogg") ||
+        file.name.endsWith(".mov") ||
+        file.name.endsWith(".avi"))) {
       onVideoSubmit(URL.createObjectURL(file), "upload");
     } else {
       toast({
         title: "Invalid file type",
-        description: "Please upload a valid video file (MP4, WebM, OGG)",
+        description: "Please upload a valid video file (MP4, WebM, OGG, MOV, AVI)",
         variant: "destructive",
       });
     }

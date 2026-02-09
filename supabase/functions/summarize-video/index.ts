@@ -11,68 +11,152 @@ serve(async (req) => {
   }
 
   try {
-    const { transcription, videoUrl } = await req.json();
-
-    if (!transcription) {
-      throw new Error('No transcription provided');
+    // Parse request body
+    let requestData;
+    try {
+      requestData = await req.json();
+    } catch (error) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid JSON in request body' }),
+        { 
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
     }
 
-    console.log(`Summarizing video: ${videoUrl}`);
+    const { transcription, videoUrl } = requestData;
 
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    if (!LOVABLE_API_KEY) {
-      throw new Error('LOVABLE_API_KEY not configured');
+    if (!transcription || transcription.trim().length === 0) {
+      return new Response(
+        JSON.stringify({ error: 'No transcription provided. Please ensure the video was transcribed successfully.' }),
+        { 
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
     }
 
-    // Enhanced video summarization with structured output
-    // In a real implementation, this would call an AI service like OpenAI or Google Gemini
-    // Simulate processing time
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    const enhancedSummary = `# Video Summary
+    console.log(`Summarizing video: ${videoUrl || 'Unknown'}, Transcription length: ${transcription.length}`);
 
-## Key Topics Discussed
-- Introduction to artificial intelligence and machine learning
-- Natural language processing advancements
-- Computer vision applications
-- Ethical considerations in AI development
+    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
+    if (!OPENAI_API_KEY) {
+      console.error('OPENAI_API_KEY not configured');
+      return new Response(
+        JSON.stringify({ 
+          error: 'OPENAI_API_KEY not configured. Please set it in your Supabase project settings under Edge Functions → Secrets.'
+        }),
+        { 
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
 
-## Timestamps and Content Breakdown
-[00:00] **Introduction** - Overview of AI and machine learning concepts
-[00:12] **Natural Language Processing** - Discussion on NLP and its applications
-[00:20] **Speaker Insights** - Expert perspectives on language processing technology
-[00:30] **Key Applications** - Real-world uses of NLP including chatbots and translation
-[00:35] **Technical Breakthroughs** - Advances in transformer models and accuracy improvements
-[00:42] **Computer Vision** - Exploration of visual information processing
-[00:48] **Application Areas** - Medical imaging and autonomous vehicles use cases
-[01:00] **Deep Learning Progress** - Image recognition advancements
-[01:15] **Ethical Implications** - Discussion on responsible AI development
-[01:20] **Bias Considerations** - Addressing fairness in AI systems
-[01:28] **Transparency Needs** - Importance of accountability in AI
-[01:35] **Conclusion** - Summary and call to action
+    // Truncate transcription if too long
+    const maxLength = 100000;
+    const textToSummarize = transcription.length > maxLength 
+      ? transcription.substring(0, maxLength) + "\n\n[Note: Transcription truncated due to length. Summary based on first part of video.]"
+      : transcription;
 
-## Key Speakers
-- **Speaker 1**: Main presenter, provides foundational knowledge
-- **Speaker 2**: Industry expert, shares technical insights
+    console.log(`Calling OpenAI API with ${textToSummarize.length} characters...`);
 
-## Highlights
-- NLP is revolutionizing human-computer interaction
-- Transformer models have significantly improved accuracy
-- Computer vision applications range from medical to automotive
-- Ethical considerations are crucial for responsible AI development
-- Bias in training data must be addressed for fair outcomes`;
+    // Call OpenAI API for video summarization with timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
 
-    console.log('Video summary generated successfully');
+    try {
+      const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o',
+          messages: [
+            {
+              role: 'system',
+              content: 'You are an expert at summarizing video transcripts. Create comprehensive summaries with key topics, timestamps (if available), main points, and insights. Format your response in markdown with clear sections and headings.'
+            },
+            {
+              role: 'user',
+              content: `Please provide a comprehensive summary of the following video transcription${videoUrl ? ` from ${videoUrl}` : ''}. Include:\n1. Key Topics Discussed\n2. Main Points and Insights\n3. Important Details\n4. Conclusions or Takeaways\n\nIf timestamps are present in the transcription (format: [MM:SS]), include them in your summary to help users navigate to specific parts of the video.\n\nTranscription:\n\n${textToSummarize}`
+            }
+          ],
+          temperature: 0.7,
+          max_tokens: 4000,
+        }),
+        signal: controller.signal,
+      });
 
-    return new Response(
-      JSON.stringify({ summary: enhancedSummary }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+      clearTimeout(timeoutId);
+
+      if (!openaiResponse.ok) {
+        const errorText = await openaiResponse.text();
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { error: { message: errorText } };
+        }
+        console.error('OpenAI API error:', errorData);
+        return new Response(
+          JSON.stringify({ 
+            error: `OpenAI API error (${openaiResponse.status}): ${errorData.error?.message || openaiResponse.statusText}. Please check your API key and account status.`
+          }),
+          { 
+            status: openaiResponse.status >= 500 ? 502 : 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        );
+      }
+
+      const openaiData = await openaiResponse.json();
+      const summary = openaiData.choices[0]?.message?.content;
+
+      if (!summary) {
+        return new Response(
+          JSON.stringify({ error: 'No summary generated from OpenAI API' }),
+          { 
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        );
+      }
+
+      console.log('Video summary generated successfully');
+
+      return new Response(
+        JSON.stringify({ summary }),
+        { 
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.error('OpenAI API request timed out');
+        return new Response(
+          JSON.stringify({ error: 'Request timed out. The video transcription might be too long. Please try with a shorter video.' }),
+          { 
+            status: 504,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        );
+      }
+      throw error;
+    }
 
   } catch (error) {
     console.error('Error in summarize-video:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
+      JSON.stringify({ 
+        error: `Failed to summarize video: ${errorMessage}. Please try again.`
+      }),
       { 
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }

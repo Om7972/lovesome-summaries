@@ -11,56 +11,201 @@ serve(async (req) => {
   }
 
   try {
-    const { videoUrl, videoType } = await req.json();
+    const { videoUrl, videoType, videoBase64 } = await req.json();
 
-    if (!videoUrl) {
-      throw new Error('No video URL provided');
+    if (!videoUrl && !videoBase64) {
+      throw new Error('No video URL or video file provided');
     }
 
-    console.log(`Processing video: ${videoUrl} (type: ${videoType})`);
+    console.log(`Processing video: ${videoUrl || 'uploaded file'} (type: ${videoType})`);
 
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    if (!LOVABLE_API_KEY) {
-      throw new Error('LOVABLE_API_KEY not configured');
+    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
+    if (!OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY not configured. Please set it in your Supabase project settings.');
     }
 
-    // Enhanced mock transcription that simulates real video processing
-    // In a real implementation, this would:
-    // 1. Download/extract the video (for YouTube, use youtube-dl or similar)
-    // 2. Extract audio track
-    // 3. Transcribe using Whisper API or similar service
-    // 4. Process timestamps and speaker identification
+    let audioFile: File | Blob | null = null;
+    let audioFileName = 'audio.mp3';
+
+    if (videoType === 'youtube') {
+      // For YouTube videos, first try to get transcripts, then fall back to audio extraction
+      // Extract video ID from URL
+      const youtubeRegex = /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/;
+      const match = videoUrl?.match(youtubeRegex);
+      const videoId = match ? match[1] : null;
+      
+      if (!videoId) {
+        throw new Error('Invalid YouTube URL. Please provide a valid YouTube video URL.');
+      }
+      
+      // Try to get transcript from YouTube first (if available)
+      try {
+        // Use a public YouTube transcript API service
+        // This service fetches available transcripts from YouTube
+        const transcriptResponse = await fetch(`https://www.youtube.com/api/timedtext?v=${videoId}&lang=en`, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          },
+        });
+        
+        if (transcriptResponse.ok) {
+          const transcriptXml = await transcriptResponse.text();
+          
+          // Parse XML transcript and convert to text with timestamps
+          // Simple XML parsing for transcript
+          const textMatches = transcriptXml.match(/<text start="([^"]+)"[^>]*>([^<]+)<\/text>/g) || [];
+          const transcriptParts = textMatches.map(match => {
+            const startMatch = match.match(/start="([^"]+)"/);
+            const textMatch = match.match(/>([^<]+)</);
+            if (startMatch && textMatch) {
+              const seconds = parseFloat(startMatch[1]);
+              const minutes = Math.floor(seconds / 60);
+              const secs = Math.floor(seconds % 60);
+              const timestamp = `[${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}]`;
+              // Decode HTML entities
+              const text = textMatch[1]
+                .replace(/&amp;/g, '&')
+                .replace(/&lt;/g, '<')
+                .replace(/&gt;/g, '>')
+                .replace(/&quot;/g, '"')
+                .replace(/&#39;/g, "'")
+                .replace(/&apos;/g, "'");
+              return `${timestamp} ${text}`;
+            }
+            return null;
+          }).filter((t): t is string => t !== null);
+          
+          if (transcriptParts.length > 0) {
+            const transcription = transcriptParts.join('\n');
+            console.log('YouTube transcript retrieved successfully');
+            return new Response(
+              JSON.stringify({ transcription }),
+              { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+        }
+      } catch (error) {
+        console.log('Could not fetch YouTube transcript, will try audio extraction:', error);
+      }
+      
+      // If transcript not available, try to extract audio and use Whisper
+      // For now, we'll provide a helpful error message
+      // In production, you would set up a YouTube audio extraction service
+      throw new Error('YouTube video does not have available transcripts and audio extraction requires a backend service. Please either: 1) Use a video with captions, 2) Download the video and upload it directly, or 3) Set up a YouTube downloader service (e.g., using yt-dlp) in your backend.');
+      
+    } else if (videoBase64) {
+      // For uploaded videos, decode base64 and create a file
+      try {
+        const videoBytes = Uint8Array.from(atob(videoBase64), c => c.charCodeAt(0));
+        audioFile = new Blob([videoBytes], { type: 'video/mp4' });
+        audioFileName = 'uploaded_video.mp4';
+      } catch (error) {
+        console.error('Error decoding video:', error);
+        throw new Error('Failed to decode video file');
+      }
+    } else {
+      throw new Error('Video file or URL is required');
+    }
+
+    // If we have a video file, we need to extract audio
+    // For simplicity, we'll send the video directly to Whisper API
+    // Whisper can handle video files and extract audio automatically
     
-    // Simulate processing time
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    if (!audioFile) {
+      throw new Error('No audio file available for transcription');
+    }
+
+    // Prepare form data for Whisper API
+    // In Deno, we need to create a File object from the Blob
+    const file = audioFile instanceof File 
+      ? audioFile 
+      : new File([audioFile], audioFileName, { type: audioFile.type || 'video/mp4' });
     
-    const mockTranscription = `[00:00] Welcome to this comprehensive guide on artificial intelligence and machine learning.
-[00:05] Today we'll be discussing the latest advancements in AI technology.
-[00:12] Our first topic is natural language processing and how it's revolutionizing human-computer interaction.
-[00:20] Speaker 1: Let's start with the basics. What is natural language processing?
-[00:25] Speaker 2: NLP is a branch of AI that helps computers understand, interpret, and generate human language.
-[00:32] [00:30] Key applications include chatbots, translation services, and content summarization.
-[00:38] [00:35] Recent breakthroughs in transformer models have significantly improved accuracy.
-[00:45] [00:42] Moving on to computer vision, another critical area of AI development.
-[00:50] [00:48] Computer vision enables machines to interpret and understand visual information.
-[00:58] [01:00] Applications range from medical imaging to autonomous vehicles.
-[01:05] [01:07] Deep learning algorithms have made remarkable progress in image recognition.
-[01:12] [01:15] Finally, let's discuss the ethical implications of AI advancement.
-[01:18] [01:20] It's crucial to address bias in training data and ensure fair outcomes.
-[01:25] [01:28] Transparency and accountability are essential for building trust in AI systems.
-[01:32] [01:35] Thank you for watching. Please subscribe for more content on AI and technology.`;
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('model', 'whisper-1');
+    formData.append('response_format', 'verbose_json'); // Get timestamps
+    formData.append('language', 'en'); // Specify language for better accuracy
+
+    console.log(`Calling OpenAI Whisper API for transcription... File: ${audioFileName}, Size: ${file.size} bytes`);
+
+    // Call OpenAI Whisper API with timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minute timeout for large videos
+
+    const whisperResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: formData,
+      signal: controller.signal,
+    });
+    
+    clearTimeout(timeoutId);
+
+    if (!whisperResponse.ok) {
+      const errorText = await whisperResponse.text();
+      let errorData;
+      try {
+        errorData = JSON.parse(errorText);
+      } catch {
+        errorData = { error: { message: errorText } };
+      }
+      console.error('Whisper API error:', errorData);
+      return new Response(
+        JSON.stringify({ 
+          error: `Whisper API error (${whisperResponse.status}): ${errorData.error?.message || whisperResponse.statusText}. ${whisperResponse.status === 413 ? 'File too large. Maximum size is 25MB.' : 'Please check your API key and try again.'}`
+        }),
+        { 
+          status: whisperResponse.status >= 500 ? 502 : whisperResponse.status,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    const whisperData = await whisperResponse.json();
+    
+    // Format transcription with timestamps if available
+    let transcription = whisperData.text || '';
+    
+    // If we have segments with timestamps, format them nicely
+    if (whisperData.segments && Array.isArray(whisperData.segments)) {
+      transcription = whisperData.segments
+        .map((segment: any) => {
+          const startMinutes = Math.floor(segment.start / 60);
+          const startSeconds = Math.floor(segment.start % 60);
+          const timestamp = `[${startMinutes.toString().padStart(2, '0')}:${startSeconds.toString().padStart(2, '0')}]`;
+          return `${timestamp} ${segment.text.trim()}`;
+        })
+        .join('\n');
+    }
 
     console.log('Video transcribed successfully');
 
     return new Response(
-      JSON.stringify({ transcription: mockTranscription }),
+      JSON.stringify({ transcription }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (error) {
     console.error('Error in transcribe-video:', error);
+    
+    if (error instanceof Error && error.name === 'AbortError') {
+      return new Response(
+        JSON.stringify({ error: 'Transcription request timed out. The video might be too long. Please try with a shorter video (max 25MB).' }),
+        { 
+          status: 504,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+    
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
+      JSON.stringify({ 
+        error: `Failed to transcribe video: ${errorMessage}. Please ensure the video has audio and is in a supported format.`
+      }),
       { 
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }

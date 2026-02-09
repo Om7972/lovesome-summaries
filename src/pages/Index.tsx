@@ -16,22 +16,17 @@ const Index = () => {
   const [pdfText, setPdfText] = useState("");
   const { toast } = useToast();
 
-  const extractTextFromPDF = async (file: File): Promise<string> => {
-    // For MVP, we'll use a simple text extraction
-    // In production, you'd want to use a proper PDF parsing library
+  const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = async (e) => {
-        try {
-          const text = e.target?.result as string;
-          // Simple extraction - in production use pdf.js or similar
-          resolve(text);
-        } catch (error) {
-          reject(error);
-        }
+      reader.onload = () => {
+        const result = reader.result as string;
+        // Remove data URL prefix (e.g., "data:application/pdf;base64,")
+        const base64 = result.split(',')[1] || result;
+        resolve(base64);
       };
       reader.onerror = reject;
-      reader.readAsText(file);
+      reader.readAsDataURL(file);
     });
   };
 
@@ -40,29 +35,58 @@ const Index = () => {
     setFileName(file.name);
 
     try {
-      // Extract text from PDF
-      const text = await extractTextFromPDF(file);
-      setPdfText(text);
+      // Convert PDF to base64
+      const pdfBase64 = await fileToBase64(file);
+      
+      // Also try to extract text using pdf.js for better results
+      let extractedText = "";
+      try {
+        // Try using pdf.js if available, otherwise let the edge function handle it
+        // For now, we'll let the edge function extract text from the base64 PDF
+      } catch (error) {
+        console.log("Text extraction will be handled by edge function");
+      }
 
-      // Call summarization function
+      // Call summarization function with base64 PDF
       const { data, error } = await supabase.functions.invoke("summarize-pdf", {
-        body: { text, fileName: file.name },
+        body: { 
+          pdfBase64,
+          fileName: file.name,
+          text: extractedText || undefined, // Optional: pass extracted text if available
+        },
       });
 
+      // Check for Supabase function invocation error
       if (error) {
-        throw error;
+        console.error("Supabase function error:", error);
+        throw new Error(error.message || "Failed to invoke summarization function");
+      }
+
+      // Check for error in response data
+      if (data && data.error) {
+        console.error("Function returned error:", data.error);
+        throw new Error(data.error);
+      }
+
+      // Validate response
+      if (!data || !data.summary) {
+        throw new Error("No summary received from server");
       }
 
       setSummary(data.summary);
+      // Store the extracted text for Q&A
+      setPdfText(data.extractedText || extractedText || "");
+      
       toast({
         title: "Success!",
-        description: "Your PDF has been summarized",
+        description: "Your PDF has been summarized successfully",
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error processing PDF:", error);
+      const errorMessage = error?.message || error?.error?.message || "Failed to process PDF. Please ensure the PDF contains readable text and try again.";
       toast({
-        title: "Error",
-        description: "Failed to process PDF. Please try again.",
+        title: "Error Processing PDF",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {
@@ -75,34 +99,98 @@ const Index = () => {
     setFileName(type === "youtube" ? "YouTube Video" : "Uploaded Video");
 
     try {
+      let videoBase64: string | undefined;
+      let videoUrl: string | undefined;
+
+      if (type === "youtube") {
+        // For YouTube videos, pass the URL
+        videoUrl = videoSource;
+      } else {
+        // For uploaded videos, convert to base64
+        try {
+          // If videoSource is a blob URL, we need to fetch it first
+          if (videoSource.startsWith('blob:')) {
+            const response = await fetch(videoSource);
+            const blob = await response.blob();
+            const file = new File([blob], 'video.mp4', { type: blob.type });
+            videoBase64 = await fileToBase64(file);
+          } else {
+            // If it's already a file, convert it
+            // This shouldn't happen with current implementation, but handle it just in case
+            videoUrl = videoSource;
+          }
+        } catch (error) {
+          console.error("Error processing video file:", error);
+          throw new Error("Failed to process video file. Please try again.");
+        }
+      }
+
       // Step 1: Transcribe the video
       const { data: transcriptionData, error: transcriptionError } = await supabase.functions.invoke("transcribe-video", {
-        body: { videoUrl: videoSource, videoType: type },
+        body: { 
+          videoUrl,
+          videoBase64,
+          videoType: type,
+        },
       });
 
+      // Check for Supabase function invocation error
       if (transcriptionError) {
-        throw transcriptionError;
+        console.error("Transcription function error:", transcriptionError);
+        throw new Error(transcriptionError.message || "Failed to invoke transcription function");
       }
+
+      // Check for error in response data
+      if (transcriptionData && transcriptionData.error) {
+        console.error("Transcription returned error:", transcriptionData.error);
+        throw new Error(transcriptionData.error);
+      }
+
+      // Validate transcription response
+      if (!transcriptionData || !transcriptionData.transcription) {
+        throw new Error("No transcription received from server");
+      }
+
+      // Store transcription for potential Q&A
+      const transcription = transcriptionData.transcription;
+      setPdfText(transcription);
 
       // Step 2: Summarize the transcription
       const { data: summaryData, error: summaryError } = await supabase.functions.invoke("summarize-video", {
-        body: { transcription: transcriptionData.transcription, videoUrl: videoSource },
+        body: { 
+          transcription,
+          videoUrl: videoUrl || videoSource,
+        },
       });
 
+      // Check for Supabase function invocation error
       if (summaryError) {
-        throw summaryError;
+        console.error("Summarization function error:", summaryError);
+        throw new Error(summaryError.message || "Failed to invoke summarization function");
+      }
+
+      // Check for error in response data
+      if (summaryData && summaryData.error) {
+        console.error("Summarization returned error:", summaryData.error);
+        throw new Error(summaryData.error);
+      }
+
+      // Validate summary response
+      if (!summaryData || !summaryData.summary) {
+        throw new Error("No summary received from server");
       }
 
       setSummary(summaryData.summary);
       toast({
         title: "Success!",
-        description: "Your video has been processed and summarized",
+        description: "Your video has been processed and summarized successfully",
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error processing video:", error);
+      const errorMessage = error?.message || error?.error?.message || "Failed to process video. Please ensure the video has audio and try again.";
       toast({
-        title: "Error",
-        description: "Failed to process video. Please try again.",
+        title: "Error Processing Video",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {
