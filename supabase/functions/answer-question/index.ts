@@ -24,7 +24,6 @@ serve(async (req) => {
       throw new Error('LOVABLE_API_KEY not configured');
     }
 
-    // Call Lovable AI for Q&A
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -32,7 +31,7 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
+        model: 'google/gemini-3-flash-preview',
         messages: [
           {
             role: 'system',
@@ -49,13 +48,24 @@ serve(async (req) => {
     if (!response.ok) {
       const errorText = await response.text();
       console.error('AI API error:', response.status, errorText);
+      
+      if (response.status === 429) {
+        return new Response(
+          JSON.stringify({ error: 'Rate limit exceeded. Please try again in a moment.' }),
+          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      if (response.status === 402) {
+        return new Response(
+          JSON.stringify({ error: 'AI usage limit reached. Please add credits to continue.' }),
+          { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
       throw new Error(`AI API error: ${response.status}`);
     }
 
     const data = await response.json();
     const answer = data.choices[0].message.content;
-
-    console.log('Answer generated successfully');
 
     return new Response(
       JSON.stringify({ answer }),
@@ -66,10 +76,7 @@ serve(async (req) => {
     console.error('Error in answer-question:', error);
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
-      { 
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      }
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });
