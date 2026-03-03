@@ -14,13 +14,75 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          email: string
+          full_name: string
+          id: string
+          is_premium: boolean
+          updated_at: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          email?: string
+          full_name?: string
+          id: string
+          is_premium?: boolean
+          updated_at?: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          email?: string
+          full_name?: string
+          id?: string
+          is_premium?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      summaries: {
+        Row: {
+          created_at: string
+          extracted_text: string
+          id: string
+          original_source: string
+          summary_text: string
+          type: string
+          user_id: string
+          word_count: number
+        }
+        Insert: {
+          created_at?: string
+          extracted_text?: string
+          id?: string
+          original_source?: string
+          summary_text?: string
+          type: string
+          user_id: string
+          word_count?: number
+        }
+        Update: {
+          created_at?: string
+          extracted_text?: string
+          id?: string
+          original_source?: string
+          summary_text?: string
+          type?: string
+          user_id?: string
+          word_count?: number
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_today_summary_count: { Args: { p_user_id: string }; Returns: number }
     }
     Enums: {
       [_ in never]: never
