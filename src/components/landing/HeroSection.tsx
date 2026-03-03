@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { Sparkles, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Link } from "react-router-dom";
 
 interface HeroSectionProps {
   onGetStarted: () => void;
@@ -61,11 +62,13 @@ export function HeroSection({ onGetStarted }: HeroSectionProps) {
           >
             <Button
               size="lg"
-              onClick={onGetStarted}
+              asChild
               className="animated-gradient text-primary-foreground px-8 py-6 text-base font-semibold btn-glow group"
             >
-              Get Started Free
-              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+              <Link to="/register">
+                Get Started Free
+                <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+              </Link>
             </Button>
             <Button
               size="lg"
