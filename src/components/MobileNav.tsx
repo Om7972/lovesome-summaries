@@ -22,7 +22,7 @@ export function MobileNav() {
   return (
     <header className="lg:hidden sticky top-0 z-50 border-b border-border/30 backdrop-blur-xl bg-background/60 px-4 py-3">
       <div className="flex items-center justify-between">
-        <Link to="/dashboard" className="flex items-center gap-2">
+        <Link to="/" className="flex items-center gap-2">
           <div className="p-1.5 rounded-lg animated-gradient">
             <FileText className="h-4 w-4 text-primary-foreground" />
           </div>
