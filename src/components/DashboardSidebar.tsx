@@ -20,7 +20,7 @@ export function DashboardSidebar() {
     <aside className="hidden lg:flex flex-col w-64 border-r border-border/50 bg-card/50 backdrop-blur-sm h-screen sticky top-0">
       {/* Logo */}
       <div className="p-6 border-b border-border/30">
-        <Link to="/dashboard" className="flex items-center gap-2.5">
+        <Link to="/" className="flex items-center gap-2.5">
           <div className="p-2 rounded-xl animated-gradient">
             <FileText className="h-4 w-4 text-primary-foreground" />
           </div>
