@@ -164,22 +164,33 @@ export default function Dashboard() {
     if (!canSummarize) { toast({ title: "Daily limit reached", description: "Upgrade to Pro for unlimited summaries.", variant: "destructive" }); return; }
     setIsProcessing(true); setFileName("YouTube Video"); setContentType("video");
     try {
-      const { data: tData, error: tErr } = await supabase.functions.invoke("youtube-transcript", { body: { youtubeUrl: url } });
+      const { data: tData, error: tErr } = await supabase.functions.invoke("youtube-transcript", { body: { youtubeUrl: url, userId: user?.id } });
       if (tErr) throw tErr;
+      if (!tData.success && tData.message) throw new Error(tData.message);
+
+      // If cached summary exists, use it directly
+      if (tData.cached && tData.cachedSummary) {
+        setVideoTranscript(tData.text || ""); setTimestamps([]);
+        setSummary(tData.cachedSummary);
+        toast({ title: "Cached!", description: "Found a previous summary for this video." });
+        return;
+      }
+
       setVideoTranscript(tData.text); setTimestamps(tData.timestamps || []);
       const { data: sData, error: sErr } = await supabase.functions.invoke("summarize-video", {
         body: { transcript: tData.text, videoName: "YouTube Video", timestamps: tData.timestamps, length: summaryLength },
       });
       if (sErr) throw sErr;
+      if (!sData.success && sData.message) throw new Error(sData.message);
       setSummary(sData.summary);
-      await saveSummary("youtube", url, tData.text, sData.summary);
+      await saveSummary("youtube", url, tData.text, sData.summary, tData.videoId);
       toast({ title: "Success!", description: "YouTube video has been summarized." });
     } catch (error: any) {
       console.error("Error processing YouTube:", error);
       const msg = error?.message || "";
       toast({
         title: "Error",
-        description: msg.includes("captions") ? "This video doesn't have captions available." : "Failed to process YouTube video.",
+        description: msg.includes("captions") ? "This video doesn't have captions available." : msg || "Failed to process YouTube video.",
         variant: "destructive",
       });
     } finally { setIsProcessing(false); }
