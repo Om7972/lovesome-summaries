@@ -25,9 +25,8 @@ serve(async (req) => {
   const startTime = Date.now();
 
   try {
-    const { transcript, videoName, timestamps, length } = await req.json();
+    const { transcript, videoName, timestamps, length, language } = await req.json();
 
-    // Input validation
     if (!transcript || typeof transcript !== 'string') {
       return errorResponse('Transcript is required', 400);
     }
@@ -36,7 +35,8 @@ serve(async (req) => {
     }
 
     const summaryLength = ['short', 'medium', 'detailed'].includes(length) ? length : 'medium';
-    console.log(`[summarize-video] Processing: ${videoName}, length: ${summaryLength}`);
+    const targetLang = language || 'english';
+    console.log(`[summarize-video] Processing: ${videoName}, length: ${summaryLength}, language: ${targetLang}`);
 
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     if (!LOVABLE_API_KEY) {
@@ -49,7 +49,11 @@ serve(async (req) => {
       detailed: 'Create a comprehensive summary of 600+ words with full detail on every topic discussed.',
     }[summaryLength];
 
-    const prompt = `You are an expert video content analyzer. ${lengthInstruction}
+    const langInstruction = targetLang !== 'english'
+      ? `\n\nIMPORTANT: Write the entire summary in ${targetLang}.`
+      : '';
+
+    const prompt = `You are an expert video content analyzer. ${lengthInstruction}${langInstruction}
 
 Video: ${(videoName || 'Untitled').substring(0, 200)}
 
@@ -95,11 +99,40 @@ ${transcript.substring(0, 100000)}`;
     const summary = data.choices[0].message.content;
     const elapsed = Date.now() - startTime;
 
+    // If non-English, also generate English version
+    let translatedSummary = '';
+    if (targetLang !== 'english') {
+      try {
+        const transResp = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'google/gemini-3-flash-preview',
+            messages: [
+              { role: 'system', content: 'Translate the following summary to English. Keep the same formatting and structure.' },
+              { role: 'user', content: summary }
+            ],
+          }),
+        });
+        if (transResp.ok) {
+          const transData = await transResp.json();
+          translatedSummary = transData.choices[0].message.content;
+        }
+      } catch (e) {
+        console.error('[summarize-video] Translation fallback failed:', e);
+      }
+    }
+
     console.log(`[summarize-video] Success in ${elapsed}ms`);
 
     return jsonResponse({
       success: true,
       summary,
+      translatedSummary,
+      language: targetLang,
       timestamps: timestamps || [],
       meta: { processingTimeMs: elapsed, inputLength: transcript.length, summaryLength: summary.length },
     });
