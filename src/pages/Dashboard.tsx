@@ -108,13 +108,16 @@ export default function Dashboard() {
     return fullText.trim();
   };
 
-  const saveSummary = async (type: "pdf" | "youtube" | "video", source: string, text: string, summaryText: string) => {
+  const saveSummary = async (type: "pdf" | "youtube" | "video", source: string, text: string, summaryText: string, videoId?: string) => {
     if (!user) return;
     const wordCount = summaryText.split(/\s+/).filter(Boolean).length;
     await supabase.from("summaries").insert({
       user_id: user.id, type, original_source: source,
       extracted_text: text.substring(0, 50000), summary_text: summaryText, word_count: wordCount,
-    });
+      video_id: videoId || null,
+      summary_length: summaryLength,
+      extracted_text_length: text.length,
+    } as any);
     await refreshUsage();
     await fetchRecentSummaries();
   };
