@@ -52,11 +52,13 @@ export type Database = {
           id: string
           insights: Json | null
           key_points: Json | null
+          language: string | null
           original_source: string
           quotes: Json | null
           summary_length: string | null
           summary_text: string
           tldr: string | null
+          translated_summary: string | null
           type: string
           user_id: string
           video_id: string | null
@@ -69,11 +71,13 @@ export type Database = {
           id?: string
           insights?: Json | null
           key_points?: Json | null
+          language?: string | null
           original_source?: string
           quotes?: Json | null
           summary_length?: string | null
           summary_text?: string
           tldr?: string | null
+          translated_summary?: string | null
           type: string
           user_id: string
           video_id?: string | null
@@ -86,11 +90,13 @@ export type Database = {
           id?: string
           insights?: Json | null
           key_points?: Json | null
+          language?: string | null
           original_source?: string
           quotes?: Json | null
           summary_length?: string | null
           summary_text?: string
           tldr?: string | null
+          translated_summary?: string | null
           type?: string
           user_id?: string
           video_id?: string | null
