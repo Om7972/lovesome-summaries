@@ -50,9 +50,13 @@ export type Database = {
           extracted_text: string
           extracted_text_length: number | null
           id: string
+          insights: Json | null
+          key_points: Json | null
           original_source: string
+          quotes: Json | null
           summary_length: string | null
           summary_text: string
+          tldr: string | null
           type: string
           user_id: string
           video_id: string | null
@@ -63,9 +67,13 @@ export type Database = {
           extracted_text?: string
           extracted_text_length?: number | null
           id?: string
+          insights?: Json | null
+          key_points?: Json | null
           original_source?: string
+          quotes?: Json | null
           summary_length?: string | null
           summary_text?: string
+          tldr?: string | null
           type: string
           user_id: string
           video_id?: string | null
@@ -76,9 +84,13 @@ export type Database = {
           extracted_text?: string
           extracted_text_length?: number | null
           id?: string
+          insights?: Json | null
+          key_points?: Json | null
           original_source?: string
+          quotes?: Json | null
           summary_length?: string | null
           summary_text?: string
+          tldr?: string | null
           type?: string
           user_id?: string
           video_id?: string | null
