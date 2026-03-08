@@ -500,7 +500,7 @@ function SummaryCard({ summary, fileName, contentType, timestamps }: {
     toast({ title: "Downloaded!", description: "Summary saved as TXT file." });
   };
 
-  const { Copy, Check, Download, FileText: FT, Video: VIcon, BarChart3: BC, Clock: CL, Sparkles: SP } = await_icons();
+  
 
   return (
     <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
