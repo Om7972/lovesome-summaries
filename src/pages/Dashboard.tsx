@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   FileText, Video, ArrowLeft, Youtube, Clock, BarChart3, Zap, TrendingUp,
-  Sparkles, Search, Filter, Trash2, Eye, Loader2
+  Sparkles, Search, Filter, Trash2, Eye, Loader2, Copy, Check, Download
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -14,8 +14,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PDFUpload } from "@/components/PDFUpload";
 import { VideoUpload } from "@/components/VideoUpload";
-import { SummaryDisplay } from "@/components/SummaryDisplay";
-import { VideoSummaryDisplay } from "@/components/VideoSummaryDisplay";
+import { SmartNotesDisplay } from "@/components/SmartNotesDisplay";
+import { ChatWithContent } from "@/components/ChatWithContent";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
@@ -30,6 +30,13 @@ interface Summary {
   created_at: string;
 }
 
+interface SmartNotes {
+  tldr: string;
+  key_points: string[];
+  insights: string[];
+  quotes: string[];
+}
+
 const typeIcons: Record<string, any> = { pdf: FileText, video: Video, youtube: Youtube };
 
 export default function Dashboard() {
@@ -41,6 +48,10 @@ export default function Dashboard() {
   const [timestamps, setTimestamps] = useState<Array<{ time: string; text: string }>>([]);
   const [contentType, setContentType] = useState<"pdf" | "video">("pdf");
   const [summaryLength, setSummaryLength] = useState<"short" | "medium" | "detailed">("medium");
+
+  // Smart Notes
+  const [smartNotes, setSmartNotes] = useState<SmartNotes | null>(null);
+  const [isGeneratingNotes, setIsGeneratingNotes] = useState(false);
 
   // History state
   const [recentSummaries, setRecentSummaries] = useState<Summary[]>([]);
@@ -54,7 +65,6 @@ export default function Dashboard() {
 
   const FREE_LIMIT = 5;
 
-  // Fetch recent summaries
   const fetchRecentSummaries = async () => {
     if (!user) return;
     setHistoryLoading(true);
@@ -71,12 +81,10 @@ export default function Dashboard() {
 
   useEffect(() => { fetchRecentSummaries(); }, [user, historyFilter]);
 
-  // Stats
   const totalSummaries = recentSummaries.length;
   const pdfCount = recentSummaries.filter(s => s.type === "pdf").length;
   const ytCount = recentSummaries.filter(s => s.type === "youtube").length;
-  const avgWordCount = totalSummaries > 0 ? Math.round(recentSummaries.reduce((a, s) => a + s.word_count, 0) / totalSummaries) : 0;
-  const timeSaved = Math.round(recentSummaries.reduce((a, s) => a + s.word_count, 0) / 200); // minutes
+  const timeSaved = Math.round(recentSummaries.reduce((a, s) => a + s.word_count, 0) / 200);
 
   const filteredSummaries = recentSummaries.filter(s =>
     searchQuery ? s.original_source.toLowerCase().includes(searchQuery.toLowerCase()) || s.summary_text.toLowerCase().includes(searchQuery.toLowerCase()) : true
@@ -108,7 +116,32 @@ export default function Dashboard() {
     return fullText.trim();
   };
 
-  const saveSummary = async (type: "pdf" | "youtube" | "video", source: string, text: string, summaryText: string, videoId?: string) => {
+  const generateSmartNotes = async (text: string, summaryText: string) => {
+    setIsGeneratingNotes(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("generate-smart-notes", {
+        body: { text, summary: summaryText },
+      });
+      if (error) throw error;
+      if (!data.success) throw new Error(data.message);
+      const notes: SmartNotes = {
+        tldr: data.tldr,
+        key_points: data.key_points,
+        insights: data.insights,
+        quotes: data.quotes,
+      };
+      setSmartNotes(notes);
+      return notes;
+    } catch (error) {
+      console.error("Smart notes error:", error);
+      toast({ title: "Note", description: "Smart notes generation failed, but your summary is ready.", variant: "destructive" });
+      return null;
+    } finally {
+      setIsGeneratingNotes(false);
+    }
+  };
+
+  const saveSummary = async (type: "pdf" | "youtube" | "video", source: string, text: string, summaryText: string, videoId?: string, notes?: SmartNotes | null) => {
     if (!user) return;
     const wordCount = summaryText.split(/\s+/).filter(Boolean).length;
     await supabase.from("summaries").insert({
@@ -117,6 +150,10 @@ export default function Dashboard() {
       video_id: videoId || null,
       summary_length: summaryLength,
       extracted_text_length: text.length,
+      key_points: notes?.key_points || [],
+      insights: notes?.insights || [],
+      quotes: notes?.quotes || [],
+      tldr: notes?.tldr || '',
     } as any);
     await refreshUsage();
     await fetchRecentSummaries();
@@ -124,15 +161,17 @@ export default function Dashboard() {
 
   const handleFileSelect = async (file: File) => {
     if (!canSummarize) { toast({ title: "Daily limit reached", description: "Upgrade to Pro for unlimited summaries.", variant: "destructive" }); return; }
-    setIsProcessing(true); setFileName(file.name); setContentType("pdf");
+    setIsProcessing(true); setFileName(file.name); setContentType("pdf"); setSmartNotes(null);
     try {
       const text = await extractTextFromPDF(file);
       setPdfText(text);
       const { data, error } = await supabase.functions.invoke("summarize-pdf", { body: { text, fileName: file.name, length: summaryLength } });
       if (error) throw error;
       setSummary(data.summary);
-      await saveSummary("pdf", file.name, text, data.summary);
       toast({ title: "Success!", description: "Your PDF has been summarized." });
+      // Generate smart notes in parallel
+      const notes = await generateSmartNotes(text, data.summary);
+      await saveSummary("pdf", file.name, text, data.summary, undefined, notes);
     } catch (error) {
       console.error("Error processing PDF:", error);
       toast({ title: "Error", description: "Failed to process PDF.", variant: "destructive" });
@@ -141,7 +180,7 @@ export default function Dashboard() {
 
   const handleVideoSelect = async (file: File) => {
     if (!canSummarize) { toast({ title: "Daily limit reached", description: "Upgrade to Pro for unlimited summaries.", variant: "destructive" }); return; }
-    setIsProcessing(true); setFileName(file.name); setContentType("video");
+    setIsProcessing(true); setFileName(file.name); setContentType("video"); setSmartNotes(null);
     try {
       const formData = new FormData(); formData.append("audio", file);
       const { data: tData, error: tErr } = await supabase.functions.invoke("transcribe-video", { body: formData });
@@ -152,8 +191,9 @@ export default function Dashboard() {
       });
       if (sErr) throw sErr;
       setSummary(sData.summary);
-      await saveSummary("video", file.name, tData.text, sData.summary);
       toast({ title: "Success!", description: "Your video has been summarized." });
+      const notes = await generateSmartNotes(tData.text, sData.summary);
+      await saveSummary("video", file.name, tData.text, sData.summary, undefined, notes);
     } catch (error) {
       console.error("Error processing video:", error);
       toast({ title: "Error", description: "Failed to process video.", variant: "destructive" });
@@ -162,17 +202,18 @@ export default function Dashboard() {
 
   const handleYouTubeSubmit = async (url: string) => {
     if (!canSummarize) { toast({ title: "Daily limit reached", description: "Upgrade to Pro for unlimited summaries.", variant: "destructive" }); return; }
-    setIsProcessing(true); setFileName("YouTube Video"); setContentType("video");
+    setIsProcessing(true); setFileName("YouTube Video"); setContentType("video"); setSmartNotes(null);
     try {
       const { data: tData, error: tErr } = await supabase.functions.invoke("youtube-transcript", { body: { youtubeUrl: url, userId: user?.id } });
       if (tErr) throw tErr;
       if (!tData.success && tData.message) throw new Error(tData.message);
 
-      // If cached summary exists, use it directly
       if (tData.cached && tData.cachedSummary) {
         setVideoTranscript(tData.text || ""); setTimestamps([]);
         setSummary(tData.cachedSummary);
         toast({ title: "Cached!", description: "Found a previous summary for this video." });
+        // Still generate smart notes for cached
+        if (tData.text) generateSmartNotes(tData.text, tData.cachedSummary);
         return;
       }
 
@@ -183,8 +224,9 @@ export default function Dashboard() {
       if (sErr) throw sErr;
       if (!sData.success && sData.message) throw new Error(sData.message);
       setSummary(sData.summary);
-      await saveSummary("youtube", url, tData.text, sData.summary, tData.videoId);
       toast({ title: "Success!", description: "YouTube video has been summarized." });
+      const notes = await generateSmartNotes(tData.text, sData.summary);
+      await saveSummary("youtube", url, tData.text, sData.summary, tData.videoId, notes);
     } catch (error: any) {
       console.error("Error processing YouTube:", error);
       const msg = error?.message || "";
@@ -196,22 +238,26 @@ export default function Dashboard() {
     } finally { setIsProcessing(false); }
   };
 
-  const handleAskQuestion = async (question: string): Promise<string> => {
-    const context = contentType === "pdf" ? pdfText : videoTranscript;
-    const { data, error } = await supabase.functions.invoke("answer-question", { body: { question, context } });
-    if (error) throw error;
-    return data.answer;
+  const handleRegenerateNotes = async () => {
+    const text = contentType === "pdf" ? pdfText : videoTranscript;
+    if (text && summary) {
+      await generateSmartNotes(text, summary);
+    }
   };
 
   const handleReset = () => {
     setSummary(null); setFileName(""); setPdfText(""); setVideoTranscript(""); setTimestamps([]);
+    setSmartNotes(null);
   };
+
+  const currentContext = contentType === "pdf" ? pdfText : videoTranscript;
+  const currentContentType = contentType === "pdf" ? "pdf" as const : "video" as const;
 
   const statsCards = [
     { label: "Total Summaries", value: totalSummaries, icon: BarChart3, color: "text-primary" },
-    { label: "YouTube Summaries", value: ytCount, icon: Youtube, color: "text-red-500" },
-    { label: "PDF Summaries", value: pdfCount, icon: FileText, color: "text-blue-500" },
-    { label: "Time Saved", value: `${timeSaved}m`, icon: Clock, color: "text-green-500" },
+    { label: "YouTube Summaries", value: ytCount, icon: Youtube, color: "text-destructive" },
+    { label: "PDF Summaries", value: pdfCount, icon: FileText, color: "text-primary" },
+    { label: "Time Saved", value: `${timeSaved}m`, icon: Clock, color: "text-accent" },
   ];
 
   return (
@@ -229,7 +275,6 @@ export default function Dashboard() {
                   {todaySummaryCount} summaries today · {totalSummaries} total
                 </p>
               </div>
-              {/* Usage Limit */}
               {!profile?.is_premium && (
                 <div className="glass-card p-4 min-w-[240px]">
                   <div className="flex items-center justify-between mb-2">
@@ -269,7 +314,6 @@ export default function Dashboard() {
 
             {/* Upload Section */}
             <div className="glass-card-strong p-8 mb-8">
-              {/* Summary Length Selector */}
               <div className="flex items-center gap-3 mb-6">
                 <span className="text-sm font-medium text-muted-foreground">Summary Length:</span>
                 {(["short", "medium", "detailed"] as const).map(len => (
@@ -401,14 +445,98 @@ export default function Dashboard() {
                 <ArrowLeft className="h-4 w-4" /> New Summary
               </Button>
             </div>
-            {contentType === "pdf" ? (
-              <SummaryDisplay summary={summary} fileName={fileName} onAskQuestion={handleAskQuestion} />
-            ) : (
-              <VideoSummaryDisplay summary={summary} videoName={fileName} timestamps={timestamps} onAskQuestion={handleAskQuestion} />
+
+            {/* Summary Display */}
+            <div className="mb-8">
+              <SummaryCard summary={summary} fileName={fileName} contentType={contentType} timestamps={timestamps} />
+            </div>
+
+            {/* Smart Notes */}
+            <div className="mb-8">
+              <SmartNotesDisplay notes={smartNotes} isLoading={isGeneratingNotes} onRegenerate={handleRegenerateNotes} />
+            </div>
+
+            {/* Chat with Content */}
+            {currentContext && (
+              <ChatWithContent context={currentContext} contentType={currentContentType} />
             )}
           </motion.div>
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+// Inline summary card to replace old split display
+function SummaryCard({ summary, fileName, contentType, timestamps }: {
+  summary: string;
+  fileName: string;
+  contentType: "pdf" | "video";
+  timestamps: Array<{ time: string; text: string }>;
+}) {
+  const { toast } = useToast();
+  const [copied, setCopied] = useState(false);
+  const wordCount = summary.split(/\s+/).filter(Boolean).length;
+  const readingTime = Math.max(1, Math.ceil(wordCount / 200));
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(summary);
+    setCopied(true);
+    toast({ title: "Copied!", description: "Summary copied to clipboard." });
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleExport = () => {
+    const content = `${contentType === "pdf" ? "Document" : "Video"}: ${fileName}\n\nSummary:\n${summary}`;
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${fileName.replace(/[^a-z0-9]/gi, '_')}_summary.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast({ title: "Downloaded!", description: "Summary saved as TXT file." });
+  };
+
+  
+
+  return (
+    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
+      <Card className="p-8 bg-gradient-card backdrop-blur-sm border-border/50 shadow-lg">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 rounded-lg bg-primary/10">
+            {contentType === "pdf" ? <FileText className="h-5 w-5 text-primary" /> : <Video className="h-5 w-5 text-primary" />}
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-xl font-bold font-display">{contentType === "pdf" ? "Document Summary" : "Video Summary"}</h2>
+            <p className="text-sm text-muted-foreground truncate">{fileName}</p>
+          </div>
+          <Sparkles className="h-5 w-5 text-accent" />
+        </div>
+
+        <div className="flex gap-4 mb-4 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1"><BarChart3 className="h-3.5 w-3.5" /> {wordCount} words</span>
+          <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {readingTime} min read</span>
+        </div>
+
+        <div className="flex gap-2 mb-4">
+          <Button variant="outline" size="sm" onClick={handleCopy} className="gap-1.5 text-xs">
+            {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+            {copied ? "Copied" : "Copy"}
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExport} className="gap-1.5 text-xs">
+            <Download className="h-3.5 w-3.5" /> Download TXT
+          </Button>
+        </div>
+
+        <ScrollArea className="h-[400px] pr-4">
+          <div className="prose prose-sm max-w-none">
+            <p className="text-foreground leading-relaxed whitespace-pre-wrap">{summary}</p>
+          </div>
+        </ScrollArea>
+      </Card>
+    </motion.div>
   );
 }

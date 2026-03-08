@@ -14,3 +14,9 @@ verify_jwt = false
 
 [functions.youtube-transcript]
 verify_jwt = false
+
+[functions.generate-smart-notes]
+verify_jwt = false
+
+[functions.chat-with-content]
+verify_jwt = false
