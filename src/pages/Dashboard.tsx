@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   FileText, Video, ArrowLeft, Youtube, Clock, BarChart3, Zap, TrendingUp,
-  Sparkles, Search, Filter, Trash2, Eye, Loader2
+  Sparkles, Search, Filter, Trash2, Eye, Loader2, Copy, Check, Download
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
