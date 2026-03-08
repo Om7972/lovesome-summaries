@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   FileText, Video, ArrowLeft, Youtube, Clock, BarChart3, Zap, TrendingUp,
-  Sparkles, Search, Filter, Trash2, Eye, Loader2, Copy, Check, Download
+  Sparkles, Search, Filter, Trash2, Eye, Loader2, Copy, Check, Download, Languages
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -12,10 +12,13 @@ import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { PDFUpload } from "@/components/PDFUpload";
 import { VideoUpload } from "@/components/VideoUpload";
 import { SmartNotesDisplay } from "@/components/SmartNotesDisplay";
 import { ChatWithContent } from "@/components/ChatWithContent";
+import { ActivityChart } from "@/components/ActivityChart";
+import { LanguageSelector, type SupportedLanguage } from "@/components/LanguageSelector";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
@@ -42,12 +45,15 @@ const typeIcons: Record<string, any> = { pdf: FileText, video: Video, youtube: Y
 export default function Dashboard() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
+  const [translatedSummary, setTranslatedSummary] = useState<string>("");
+  const [showTranslated, setShowTranslated] = useState(false);
   const [fileName, setFileName] = useState("");
   const [pdfText, setPdfText] = useState("");
   const [videoTranscript, setVideoTranscript] = useState("");
   const [timestamps, setTimestamps] = useState<Array<{ time: string; text: string }>>([]);
   const [contentType, setContentType] = useState<"pdf" | "video">("pdf");
   const [summaryLength, setSummaryLength] = useState<"short" | "medium" | "detailed">("medium");
+  const [language, setLanguage] = useState<SupportedLanguage>("english");
 
   // Smart Notes
   const [smartNotes, setSmartNotes] = useState<SmartNotes | null>(null);
@@ -59,6 +65,9 @@ export default function Dashboard() {
   const [historyFilter, setHistoryFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [viewSummary, setViewSummary] = useState<Summary | null>(null);
+
+  // All summaries for analytics (last 7 days)
+  const [allSummaries, setAllSummaries] = useState<Summary[]>([]);
 
   const { user, profile, canSummarize, todaySummaryCount, refreshUsage } = useAuth();
   const { toast } = useToast();
@@ -79,12 +88,26 @@ export default function Dashboard() {
     setHistoryLoading(false);
   };
 
+  const fetchAllSummaries = async () => {
+    if (!user) return;
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const { data } = await supabase
+      .from("summaries")
+      .select("id, type, original_source, summary_text, word_count, created_at")
+      .gte("created_at", sevenDaysAgo.toISOString())
+      .order("created_at", { ascending: false });
+    setAllSummaries((data as Summary[]) || []);
+  };
+
   useEffect(() => { fetchRecentSummaries(); }, [user, historyFilter]);
+  useEffect(() => { fetchAllSummaries(); }, [user]);
 
   const totalSummaries = recentSummaries.length;
   const pdfCount = recentSummaries.filter(s => s.type === "pdf").length;
   const ytCount = recentSummaries.filter(s => s.type === "youtube").length;
   const timeSaved = Math.round(recentSummaries.reduce((a, s) => a + s.word_count, 0) / 200);
+  const avgLength = totalSummaries > 0 ? Math.round(recentSummaries.reduce((a, s) => a + s.word_count, 0) / totalSummaries) : 0;
 
   const filteredSummaries = recentSummaries.filter(s =>
     searchQuery ? s.original_source.toLowerCase().includes(searchQuery.toLowerCase()) || s.summary_text.toLowerCase().includes(searchQuery.toLowerCase()) : true
@@ -141,7 +164,7 @@ export default function Dashboard() {
     }
   };
 
-  const saveSummary = async (type: "pdf" | "youtube" | "video", source: string, text: string, summaryText: string, videoId?: string, notes?: SmartNotes | null) => {
+  const saveSummary = async (type: "pdf" | "youtube" | "video", source: string, text: string, summaryText: string, videoId?: string, notes?: SmartNotes | null, lang?: string, translated?: string) => {
     if (!user) return;
     const wordCount = summaryText.split(/\s+/).filter(Boolean).length;
     await supabase.from("summaries").insert({
@@ -154,24 +177,27 @@ export default function Dashboard() {
       insights: notes?.insights || [],
       quotes: notes?.quotes || [],
       tldr: notes?.tldr || '',
+      language: lang || 'english',
+      translated_summary: translated || '',
     } as any);
     await refreshUsage();
     await fetchRecentSummaries();
+    await fetchAllSummaries();
   };
 
   const handleFileSelect = async (file: File) => {
     if (!canSummarize) { toast({ title: "Daily limit reached", description: "Upgrade to Pro for unlimited summaries.", variant: "destructive" }); return; }
-    setIsProcessing(true); setFileName(file.name); setContentType("pdf"); setSmartNotes(null);
+    setIsProcessing(true); setFileName(file.name); setContentType("pdf"); setSmartNotes(null); setTranslatedSummary(""); setShowTranslated(false);
     try {
       const text = await extractTextFromPDF(file);
       setPdfText(text);
-      const { data, error } = await supabase.functions.invoke("summarize-pdf", { body: { text, fileName: file.name, length: summaryLength } });
+      const { data, error } = await supabase.functions.invoke("summarize-pdf", { body: { text, fileName: file.name, length: summaryLength, language } });
       if (error) throw error;
       setSummary(data.summary);
+      setTranslatedSummary(data.translatedSummary || "");
       toast({ title: "Success!", description: "Your PDF has been summarized." });
-      // Generate smart notes in parallel
       const notes = await generateSmartNotes(text, data.summary);
-      await saveSummary("pdf", file.name, text, data.summary, undefined, notes);
+      await saveSummary("pdf", file.name, text, data.summary, undefined, notes, language, data.translatedSummary);
     } catch (error) {
       console.error("Error processing PDF:", error);
       toast({ title: "Error", description: "Failed to process PDF.", variant: "destructive" });
@@ -180,20 +206,21 @@ export default function Dashboard() {
 
   const handleVideoSelect = async (file: File) => {
     if (!canSummarize) { toast({ title: "Daily limit reached", description: "Upgrade to Pro for unlimited summaries.", variant: "destructive" }); return; }
-    setIsProcessing(true); setFileName(file.name); setContentType("video"); setSmartNotes(null);
+    setIsProcessing(true); setFileName(file.name); setContentType("video"); setSmartNotes(null); setTranslatedSummary(""); setShowTranslated(false);
     try {
       const formData = new FormData(); formData.append("audio", file);
       const { data: tData, error: tErr } = await supabase.functions.invoke("transcribe-video", { body: formData });
       if (tErr) throw tErr;
       setVideoTranscript(tData.text); setTimestamps(tData.timestamps || []);
       const { data: sData, error: sErr } = await supabase.functions.invoke("summarize-video", {
-        body: { transcript: tData.text, videoName: file.name, timestamps: tData.timestamps, length: summaryLength },
+        body: { transcript: tData.text, videoName: file.name, timestamps: tData.timestamps, length: summaryLength, language },
       });
       if (sErr) throw sErr;
       setSummary(sData.summary);
+      setTranslatedSummary(sData.translatedSummary || "");
       toast({ title: "Success!", description: "Your video has been summarized." });
       const notes = await generateSmartNotes(tData.text, sData.summary);
-      await saveSummary("video", file.name, tData.text, sData.summary, undefined, notes);
+      await saveSummary("video", file.name, tData.text, sData.summary, undefined, notes, language, sData.translatedSummary);
     } catch (error) {
       console.error("Error processing video:", error);
       toast({ title: "Error", description: "Failed to process video.", variant: "destructive" });
@@ -202,7 +229,7 @@ export default function Dashboard() {
 
   const handleYouTubeSubmit = async (url: string) => {
     if (!canSummarize) { toast({ title: "Daily limit reached", description: "Upgrade to Pro for unlimited summaries.", variant: "destructive" }); return; }
-    setIsProcessing(true); setFileName("YouTube Video"); setContentType("video"); setSmartNotes(null);
+    setIsProcessing(true); setFileName("YouTube Video"); setContentType("video"); setSmartNotes(null); setTranslatedSummary(""); setShowTranslated(false);
     try {
       const { data: tData, error: tErr } = await supabase.functions.invoke("youtube-transcript", { body: { youtubeUrl: url, userId: user?.id } });
       if (tErr) throw tErr;
@@ -212,21 +239,21 @@ export default function Dashboard() {
         setVideoTranscript(tData.text || ""); setTimestamps([]);
         setSummary(tData.cachedSummary);
         toast({ title: "Cached!", description: "Found a previous summary for this video." });
-        // Still generate smart notes for cached
         if (tData.text) generateSmartNotes(tData.text, tData.cachedSummary);
         return;
       }
 
       setVideoTranscript(tData.text); setTimestamps(tData.timestamps || []);
       const { data: sData, error: sErr } = await supabase.functions.invoke("summarize-video", {
-        body: { transcript: tData.text, videoName: "YouTube Video", timestamps: tData.timestamps, length: summaryLength },
+        body: { transcript: tData.text, videoName: "YouTube Video", timestamps: tData.timestamps, length: summaryLength, language },
       });
       if (sErr) throw sErr;
       if (!sData.success && sData.message) throw new Error(sData.message);
       setSummary(sData.summary);
+      setTranslatedSummary(sData.translatedSummary || "");
       toast({ title: "Success!", description: "YouTube video has been summarized." });
       const notes = await generateSmartNotes(tData.text, sData.summary);
-      await saveSummary("youtube", url, tData.text, sData.summary, tData.videoId, notes);
+      await saveSummary("youtube", url, tData.text, sData.summary, tData.videoId, notes, language, sData.translatedSummary);
     } catch (error: any) {
       console.error("Error processing YouTube:", error);
       const msg = error?.message || "";
@@ -247,7 +274,7 @@ export default function Dashboard() {
 
   const handleReset = () => {
     setSummary(null); setFileName(""); setPdfText(""); setVideoTranscript(""); setTimestamps([]);
-    setSmartNotes(null);
+    setSmartNotes(null); setTranslatedSummary(""); setShowTranslated(false);
   };
 
   const currentContext = contentType === "pdf" ? pdfText : videoTranscript;
@@ -258,7 +285,10 @@ export default function Dashboard() {
     { label: "YouTube Summaries", value: ytCount, icon: Youtube, color: "text-destructive" },
     { label: "PDF Summaries", value: pdfCount, icon: FileText, color: "text-primary" },
     { label: "Time Saved", value: `${timeSaved}m`, icon: Clock, color: "text-accent" },
+    { label: "Avg Length", value: `${avgLength}w`, icon: TrendingUp, color: "text-muted-foreground" },
   ];
+
+  const displayedSummary = showTranslated && translatedSummary ? translatedSummary : summary;
 
   return (
     <div className="max-w-6xl mx-auto space-y-8">
@@ -296,7 +326,7 @@ export default function Dashboard() {
             </div>
 
             {/* Stats Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
               {statsCards.map((stat, i) => (
                 <motion.div key={stat.label} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }}>
                   <Card className="glass-card p-5">
@@ -312,9 +342,14 @@ export default function Dashboard() {
               ))}
             </div>
 
+            {/* Activity Chart */}
+            <div className="mb-8">
+              <ActivityChart summaries={allSummaries} />
+            </div>
+
             {/* Upload Section */}
             <div className="glass-card-strong p-8 mb-8">
-              <div className="flex items-center gap-3 mb-6">
+              <div className="flex flex-wrap items-center gap-3 mb-6">
                 <span className="text-sm font-medium text-muted-foreground">Summary Length:</span>
                 {(["short", "medium", "detailed"] as const).map(len => (
                   <Button
@@ -327,6 +362,8 @@ export default function Dashboard() {
                     {len}
                   </Button>
                 ))}
+                <div className="h-6 w-px bg-border mx-2 hidden sm:block" />
+                <LanguageSelector value={language} onChange={setLanguage} disabled={isProcessing} />
               </div>
 
               <Tabs defaultValue="pdf" className="w-full">
@@ -440,15 +477,30 @@ export default function Dashboard() {
           </motion.div>
         ) : (
           <motion.div key="summary" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-            <div className="mb-6">
+            <div className="mb-6 flex items-center justify-between">
               <Button variant="ghost" onClick={handleReset} className="gap-2 text-muted-foreground hover:text-foreground">
                 <ArrowLeft className="h-4 w-4" /> New Summary
               </Button>
+              {/* Language Toggle */}
+              {language !== "english" && translatedSummary && (
+                <div className="flex items-center gap-2 text-sm">
+                  <Languages className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground capitalize">{language}</span>
+                  <Switch checked={showTranslated} onCheckedChange={setShowTranslated} />
+                  <span className="text-xs text-muted-foreground">English</span>
+                </div>
+              )}
             </div>
 
             {/* Summary Display */}
             <div className="mb-8">
-              <SummaryCard summary={summary} fileName={fileName} contentType={contentType} timestamps={timestamps} />
+              <SummaryCard
+                summary={displayedSummary || summary || ""}
+                fileName={fileName}
+                contentType={contentType}
+                timestamps={timestamps}
+                language={showTranslated ? "english" : language}
+              />
             </div>
 
             {/* Smart Notes */}
@@ -467,17 +519,18 @@ export default function Dashboard() {
   );
 }
 
-// Inline summary card to replace old split display
-function SummaryCard({ summary, fileName, contentType, timestamps }: {
+// Inline summary card
+function SummaryCard({ summary, fileName, contentType, timestamps, language }: {
   summary: string;
   fileName: string;
   contentType: "pdf" | "video";
   timestamps: Array<{ time: string; text: string }>;
+  language?: string;
 }) {
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
   const wordCount = summary.split(/\s+/).filter(Boolean).length;
-  const readingTime = Math.max(1, Math.ceil(wordCount / 200));
+  const readTime = Math.max(1, Math.ceil(wordCount / 200));
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(summary);
@@ -500,8 +553,6 @@ function SummaryCard({ summary, fileName, contentType, timestamps }: {
     toast({ title: "Downloaded!", description: "Summary saved as TXT file." });
   };
 
-  
-
   return (
     <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
       <Card className="p-8 bg-gradient-card backdrop-blur-sm border-border/50 shadow-lg">
@@ -513,12 +564,15 @@ function SummaryCard({ summary, fileName, contentType, timestamps }: {
             <h2 className="text-xl font-bold font-display">{contentType === "pdf" ? "Document Summary" : "Video Summary"}</h2>
             <p className="text-sm text-muted-foreground truncate">{fileName}</p>
           </div>
+          {language && language !== "english" && (
+            <span className="text-xs px-2 py-1 rounded-full bg-accent/10 text-accent capitalize">{language}</span>
+          )}
           <Sparkles className="h-5 w-5 text-accent" />
         </div>
 
         <div className="flex gap-4 mb-4 text-xs text-muted-foreground">
           <span className="flex items-center gap-1"><BarChart3 className="h-3.5 w-3.5" /> {wordCount} words</span>
-          <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {readingTime} min read</span>
+          <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {readTime} min read</span>
         </div>
 
         <div className="flex gap-2 mb-4">
