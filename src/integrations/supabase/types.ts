@@ -48,31 +48,40 @@ export type Database = {
         Row: {
           created_at: string
           extracted_text: string
+          extracted_text_length: number | null
           id: string
           original_source: string
+          summary_length: string | null
           summary_text: string
           type: string
           user_id: string
+          video_id: string | null
           word_count: number
         }
         Insert: {
           created_at?: string
           extracted_text?: string
+          extracted_text_length?: number | null
           id?: string
           original_source?: string
+          summary_length?: string | null
           summary_text?: string
           type: string
           user_id: string
+          video_id?: string | null
           word_count?: number
         }
         Update: {
           created_at?: string
           extracted_text?: string
+          extracted_text_length?: number | null
           id?: string
           original_source?: string
+          summary_length?: string | null
           summary_text?: string
           type?: string
           user_id?: string
+          video_id?: string | null
           word_count?: number
         }
         Relationships: []
