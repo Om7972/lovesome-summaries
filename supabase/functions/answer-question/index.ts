@@ -5,23 +5,43 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+function jsonResponse(body: Record<string, unknown>, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+function errorResponse(message: string, status = 500) {
+  console.error(`[answer-question] Error: ${message}`);
+  return jsonResponse({ success: false, message }, status);
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const startTime = Date.now();
+
   try {
     const { question, context } = await req.json();
 
-    if (!question || !context) {
-      throw new Error('Question and context are required');
+    if (!question || typeof question !== 'string' || question.trim().length === 0) {
+      return errorResponse('Question is required', 400);
+    }
+    if (!context || typeof context !== 'string') {
+      return errorResponse('Context is required', 400);
+    }
+    if (question.length > 2000) {
+      return errorResponse('Question is too long (max 2000 characters)', 400);
     }
 
-    console.log(`Processing question: ${question}`);
+    console.log(`[answer-question] Processing: ${question.substring(0, 100)}`);
 
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     if (!LOVABLE_API_KEY) {
-      throw new Error('LOVABLE_API_KEY not configured');
+      return errorResponse('LOVABLE_API_KEY not configured', 503);
     }
 
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
@@ -47,36 +67,23 @@ serve(async (req) => {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('AI API error:', response.status, errorText);
-      
-      if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: 'Rate limit exceeded. Please try again in a moment.' }),
-          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: 'AI usage limit reached. Please add credits to continue.' }),
-          { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-      throw new Error(`AI API error: ${response.status}`);
+      console.error('[answer-question] AI API error:', response.status, errorText);
+      if (response.status === 429) return errorResponse('Rate limit exceeded. Please try again in a moment.', 429);
+      if (response.status === 402) return errorResponse('AI usage limit reached. Please add credits to continue.', 402);
+      return errorResponse(`AI API error: ${response.status}`);
     }
 
     const data = await response.json();
     const answer = data.choices[0].message.content;
+    const elapsed = Date.now() - startTime;
 
-    return new Response(
-      JSON.stringify({ answer }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    console.log(`[answer-question] Success in ${elapsed}ms`);
+
+    return jsonResponse({ success: true, answer });
 
   } catch (error) {
-    console.error('Error in answer-question:', error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    const elapsed = Date.now() - startTime;
+    console.error(`[answer-question] Failed after ${elapsed}ms:`, error);
+    return errorResponse(error instanceof Error ? error.message : 'Unknown error');
   }
 });
