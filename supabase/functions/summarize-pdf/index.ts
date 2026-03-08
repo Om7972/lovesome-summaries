@@ -5,24 +5,49 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+function jsonResponse(body: Record<string, unknown>, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+function errorResponse(message: string, status = 500) {
+  console.error(`[summarize-pdf] Error: ${message}`);
+  return jsonResponse({ success: false, message }, status);
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
-  try {
-    const { text, fileName } = await req.json();
+  const startTime = Date.now();
 
-    if (!text) {
-      throw new Error('No text provided');
+  try {
+    const { text, fileName, length } = await req.json();
+
+    // Input validation
+    if (!text || typeof text !== 'string') {
+      return errorResponse('No text provided', 400);
+    }
+    if (text.length > 500000) {
+      return errorResponse('Text exceeds maximum allowed length (500K chars)', 413);
     }
 
-    console.log(`Processing PDF: ${fileName}`);
+    const summaryLength = ['short', 'medium', 'detailed'].includes(length) ? length : 'medium';
+    console.log(`[summarize-pdf] Processing: ${fileName}, length: ${summaryLength}`);
 
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     if (!LOVABLE_API_KEY) {
-      throw new Error('LOVABLE_API_KEY not configured');
+      return errorResponse('LOVABLE_API_KEY not configured', 503);
     }
+
+    const lengthInstruction = {
+      short: 'Keep the summary concise, under 200 words. Focus only on the most critical points.',
+      medium: 'Create a balanced summary of 300-500 words covering all key points.',
+      detailed: 'Create a comprehensive, detailed summary of 600+ words capturing all important details, arguments, and insights.',
+    }[summaryLength];
 
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
@@ -35,7 +60,7 @@ serve(async (req) => {
         messages: [
           {
             role: 'system',
-            content: 'You are an expert document summarizer. Create detailed, well-structured summaries that capture all key points, main arguments, important details, and actionable insights from documents. Use clear sections, bullet points, and highlight critical information. Be comprehensive yet concise.'
+            content: `You are an expert document summarizer. ${lengthInstruction} Use clear sections, bullet points, and highlight critical information.`
           },
           {
             role: 'user',
@@ -47,41 +72,32 @@ serve(async (req) => {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('AI API error:', response.status, errorText);
+      console.error('[summarize-pdf] AI API error:', response.status, errorText);
       
-      if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: 'Rate limit exceeded. Please try again in a moment.' }),
-          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: 'AI usage limit reached. Please add credits to continue.' }),
-          { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-      throw new Error(`AI API error: ${response.status}`);
+      if (response.status === 429) return errorResponse('Rate limit exceeded. Please try again in a moment.', 429);
+      if (response.status === 402) return errorResponse('AI usage limit reached. Please add credits to continue.', 402);
+      return errorResponse(`AI API error: ${response.status}`);
     }
 
     const data = await response.json();
     const summary = data.choices[0].message.content;
+    const elapsed = Date.now() - startTime;
 
-    console.log('Summary generated successfully');
+    console.log(`[summarize-pdf] Success in ${elapsed}ms, summary length: ${summary.length} chars`);
 
-    return new Response(
-      JSON.stringify({ summary }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return jsonResponse({
+      success: true,
+      summary,
+      meta: {
+        processingTimeMs: elapsed,
+        inputLength: text.length,
+        summaryLength: summary.length,
+      }
+    });
 
   } catch (error) {
-    console.error('Error in summarize-pdf:', error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
-      { 
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      }
-    );
+    const elapsed = Date.now() - startTime;
+    console.error(`[summarize-pdf] Failed after ${elapsed}ms:`, error);
+    return errorResponse(error instanceof Error ? error.message : 'Unknown error');
   }
 });
