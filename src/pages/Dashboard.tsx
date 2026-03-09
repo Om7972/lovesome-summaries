@@ -58,6 +58,7 @@ export default function Dashboard() {
   const [contentType, setContentType] = useState<"pdf" | "video">("pdf");
   const [summaryLength, setSummaryLength] = useState<"short" | "medium" | "detailed">("medium");
   const [language, setLanguage] = useState<SupportedLanguage>("english");
+  const [youtubeUrl, setYoutubeUrl] = useState("");
 
   // Smart Notes
   const [smartNotes, setSmartNotes] = useState<SmartNotes | null>(null);
