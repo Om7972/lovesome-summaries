@@ -513,6 +513,37 @@ export default function Dashboard() {
               <SmartNotesDisplay notes={smartNotes} isLoading={isGeneratingNotes} onRegenerate={handleRegenerateNotes} />
             </div>
 
+            {/* Smart Highlights */}
+            <div className="mb-8">
+              <SmartHighlights
+                text={currentContext}
+                contentType={currentContentType === "pdf" ? "pdf" : contentType === "video" ? "video" : "youtube"}
+                timestamps={timestamps}
+                youtubeUrl={youtubeUrl || undefined}
+              />
+            </div>
+
+            {/* Knowledge Graph */}
+            {currentContext && (
+              <div className="mb-8">
+                <KnowledgeGraph text={currentContext} summary={summary || ""} />
+              </div>
+            )}
+
+            {/* AI Learning Mode */}
+            {currentContext && (
+              <div className="mb-8">
+                <LearningMode text={currentContext} summary={summary || ""} />
+              </div>
+            )}
+
+            {/* Podcast Player */}
+            {summary && (
+              <div className="mb-8">
+                <PodcastPlayer summary={summary} />
+              </div>
+            )}
+
             {/* Chat with Content */}
             {currentContext && (
               <ChatWithContent context={currentContext} contentType={currentContentType} />
