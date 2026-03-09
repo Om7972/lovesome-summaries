@@ -234,7 +234,7 @@ export default function Dashboard() {
 
   const handleYouTubeSubmit = async (url: string) => {
     if (!canSummarize) { toast({ title: "Daily limit reached", description: "Upgrade to Pro for unlimited summaries.", variant: "destructive" }); return; }
-    setIsProcessing(true); setFileName("YouTube Video"); setContentType("video"); setSmartNotes(null); setTranslatedSummary(""); setShowTranslated(false);
+    setIsProcessing(true); setFileName("YouTube Video"); setContentType("video"); setSmartNotes(null); setTranslatedSummary(""); setShowTranslated(false); setYoutubeUrl(url);
     try {
       const { data: tData, error: tErr } = await supabase.functions.invoke("youtube-transcript", { body: { youtubeUrl: url, userId: user?.id } });
       if (tErr) throw tErr;
