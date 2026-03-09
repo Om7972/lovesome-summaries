@@ -279,7 +279,7 @@ export default function Dashboard() {
 
   const handleReset = () => {
     setSummary(null); setFileName(""); setPdfText(""); setVideoTranscript(""); setTimestamps([]);
-    setSmartNotes(null); setTranslatedSummary(""); setShowTranslated(false);
+    setSmartNotes(null); setTranslatedSummary(""); setShowTranslated(false); setYoutubeUrl("");
   };
 
   const currentContext = contentType === "pdf" ? pdfText : videoTranscript;
