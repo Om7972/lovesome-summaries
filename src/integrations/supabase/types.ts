@@ -14,6 +14,85 @@ export type Database = {
   }
   public: {
     Tables: {
+      highlights: {
+        Row: {
+          created_at: string
+          description: string
+          id: string
+          importance: string
+          summary_id: string
+          timestamp: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          description: string
+          id?: string
+          importance?: string
+          summary_id: string
+          timestamp?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          id?: string
+          importance?: string
+          summary_id?: string
+          timestamp?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "highlights_summary_id_fkey"
+            columns: ["summary_id"]
+            isOneToOne: false
+            referencedRelation: "summaries"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      podcasts: {
+        Row: {
+          audio_url: string
+          created_at: string
+          duration_seconds: number | null
+          id: string
+          status: string
+          summary_id: string
+          user_id: string
+          voice_type: string
+        }
+        Insert: {
+          audio_url?: string
+          created_at?: string
+          duration_seconds?: number | null
+          id?: string
+          status?: string
+          summary_id: string
+          user_id: string
+          voice_type?: string
+        }
+        Update: {
+          audio_url?: string
+          created_at?: string
+          duration_seconds?: number | null
+          id?: string
+          status?: string
+          summary_id?: string
+          user_id?: string
+          voice_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "podcasts_summary_id_fkey"
+            columns: ["summary_id"]
+            isOneToOne: false
+            referencedRelation: "summaries"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -43,6 +122,47 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      quizzes: {
+        Row: {
+          answer: string
+          created_at: string
+          id: string
+          options: Json | null
+          question: string
+          quiz_type: string
+          summary_id: string
+          user_id: string
+        }
+        Insert: {
+          answer: string
+          created_at?: string
+          id?: string
+          options?: Json | null
+          question: string
+          quiz_type?: string
+          summary_id: string
+          user_id: string
+        }
+        Update: {
+          answer?: string
+          created_at?: string
+          id?: string
+          options?: Json | null
+          question?: string
+          quiz_type?: string
+          summary_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quizzes_summary_id_fkey"
+            columns: ["summary_id"]
+            isOneToOne: false
+            referencedRelation: "summaries"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       summaries: {
         Row: {
