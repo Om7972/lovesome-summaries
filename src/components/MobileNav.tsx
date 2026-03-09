@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { FileText, LayoutDashboard, History, CreditCard, User, LogOut, Menu } from "lucide-react";
+import { FileText, LayoutDashboard, History, CreditCard, User, LogOut, Menu, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useAuth } from "@/context/AuthContext";
@@ -10,6 +10,7 @@ import { useState } from "react";
 const navItems = [
   { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
   { label: "History", icon: History, href: "/history" },
+  { label: "Knowledge", icon: BookOpen, href: "/knowledge" },
   { label: "Pricing", icon: CreditCard, href: "/pricing" },
   { label: "Profile", icon: User, href: "/profile" },
 ];
