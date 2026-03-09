@@ -11,6 +11,7 @@ import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 import HistoryPage from "./pages/HistoryPage";
 import ProfilePage from "./pages/ProfilePage";
+import KnowledgeLibrary from "./pages/KnowledgeLibrary";
 import NotFound from "./pages/NotFound";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { PricingSection } from "@/components/landing/PricingSection";
