@@ -19,6 +19,10 @@ import { SmartNotesDisplay } from "@/components/SmartNotesDisplay";
 import { ChatWithContent } from "@/components/ChatWithContent";
 import { ActivityChart } from "@/components/ActivityChart";
 import { LanguageSelector, type SupportedLanguage } from "@/components/LanguageSelector";
+import { LearningMode } from "@/components/LearningMode";
+import { SmartHighlights } from "@/components/SmartHighlights";
+import { PodcastPlayer } from "@/components/PodcastPlayer";
+import { KnowledgeGraph } from "@/components/KnowledgeGraph";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
@@ -54,6 +58,7 @@ export default function Dashboard() {
   const [contentType, setContentType] = useState<"pdf" | "video">("pdf");
   const [summaryLength, setSummaryLength] = useState<"short" | "medium" | "detailed">("medium");
   const [language, setLanguage] = useState<SupportedLanguage>("english");
+  const [youtubeUrl, setYoutubeUrl] = useState("");
 
   // Smart Notes
   const [smartNotes, setSmartNotes] = useState<SmartNotes | null>(null);
@@ -229,7 +234,7 @@ export default function Dashboard() {
 
   const handleYouTubeSubmit = async (url: string) => {
     if (!canSummarize) { toast({ title: "Daily limit reached", description: "Upgrade to Pro for unlimited summaries.", variant: "destructive" }); return; }
-    setIsProcessing(true); setFileName("YouTube Video"); setContentType("video"); setSmartNotes(null); setTranslatedSummary(""); setShowTranslated(false);
+    setIsProcessing(true); setFileName("YouTube Video"); setContentType("video"); setSmartNotes(null); setTranslatedSummary(""); setShowTranslated(false); setYoutubeUrl(url);
     try {
       const { data: tData, error: tErr } = await supabase.functions.invoke("youtube-transcript", { body: { youtubeUrl: url, userId: user?.id } });
       if (tErr) throw tErr;
@@ -274,7 +279,7 @@ export default function Dashboard() {
 
   const handleReset = () => {
     setSummary(null); setFileName(""); setPdfText(""); setVideoTranscript(""); setTimestamps([]);
-    setSmartNotes(null); setTranslatedSummary(""); setShowTranslated(false);
+    setSmartNotes(null); setTranslatedSummary(""); setShowTranslated(false); setYoutubeUrl("");
   };
 
   const currentContext = contentType === "pdf" ? pdfText : videoTranscript;
@@ -507,6 +512,37 @@ export default function Dashboard() {
             <div className="mb-8">
               <SmartNotesDisplay notes={smartNotes} isLoading={isGeneratingNotes} onRegenerate={handleRegenerateNotes} />
             </div>
+
+            {/* Smart Highlights */}
+            <div className="mb-8">
+              <SmartHighlights
+                text={currentContext}
+                contentType={currentContentType === "pdf" ? "pdf" : contentType === "video" ? "video" : "youtube"}
+                timestamps={timestamps}
+                youtubeUrl={youtubeUrl || undefined}
+              />
+            </div>
+
+            {/* Knowledge Graph */}
+            {currentContext && (
+              <div className="mb-8">
+                <KnowledgeGraph text={currentContext} summary={summary || ""} />
+              </div>
+            )}
+
+            {/* AI Learning Mode */}
+            {currentContext && (
+              <div className="mb-8">
+                <LearningMode text={currentContext} summary={summary || ""} />
+              </div>
+            )}
+
+            {/* Podcast Player */}
+            {summary && (
+              <div className="mb-8">
+                <PodcastPlayer summary={summary} />
+              </div>
+            )}
 
             {/* Chat with Content */}
             {currentContext && (
