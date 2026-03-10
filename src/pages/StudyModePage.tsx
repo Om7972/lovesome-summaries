@@ -139,19 +139,13 @@ export default function StudyModePage() {
         </div>
 
         {loading ? (
-          <div className="grid gap-4 md:grid-cols-2">
-            {[1, 2, 3, 4].map(i => (
-              <Card key={i} className="glass-card p-6">
-                <Skeleton className="h-5 w-3/4 mb-3" />
-                <Skeleton className="h-4 w-1/2" />
-              </Card>
-            ))}
-          </div>
+          <SummaryListSkeleton count={6} />
         ) : summaries.length === 0 ? (
-          <Card className="glass-card p-12 text-center">
-            <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <p className="text-muted-foreground">No summaries yet. Create one from the Dashboard first!</p>
-          </Card>
+          <EmptyState
+            icon={GraduationCap}
+            title="No summaries to study"
+            description="Create your first summary from the Dashboard, then come back here to generate flashcards and quizzes."
+          />
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
             {summaries.map((s, i) => (
