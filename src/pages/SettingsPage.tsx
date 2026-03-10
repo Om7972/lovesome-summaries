@@ -233,8 +233,8 @@ export default function SettingsPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <Check className="h-3.5 w-3.5 text-green-500" />
-                  <span className="text-xs text-green-600 dark:text-green-400 font-medium">Connected</span>
+                  <Check className="h-3.5 w-3.5 text-success" />
+                  <span className="text-xs text-success-foreground font-medium">Connected</span>
                 </div>
               </div>
               <div className="flex items-center gap-2">
