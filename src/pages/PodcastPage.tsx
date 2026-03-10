@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Headphones, FileText, Loader2 } from "lucide-react";
+import { Headphones, FileText, Loader2, Mic } from "lucide-react";
+import { EmptyState, SummaryListSkeleton } from "@/components/EmptyState";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PodcastPlayer } from "@/components/PodcastPlayer";
