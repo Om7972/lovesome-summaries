@@ -15,6 +15,7 @@ import KnowledgeLibrary from "./pages/KnowledgeLibrary";
 import StudyModePage from "./pages/StudyModePage";
 import PodcastPage from "./pages/PodcastPage";
 import KnowledgeGraphPage from "./pages/KnowledgeGraphPage";
+import SettingsPage from "./pages/SettingsPage";
 import NotFound from "./pages/NotFound";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { PricingSection } from "@/components/landing/PricingSection";
@@ -49,6 +50,7 @@ const App = () => (
                 <Route path="/study" element={<StudyModePage />} />
                 <Route path="/podcasts" element={<PodcastPage />} />
                 <Route path="/graph" element={<KnowledgeGraphPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/profile" element={<ProfilePage />} />
                 <Route path="/pricing" element={<PricingPage />} />
               </Route>

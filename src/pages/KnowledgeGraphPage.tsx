@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Share2, FileText } from "lucide-react";
+import { Share2, FileText, Network } from "lucide-react";
+import { EmptyState, SummaryListSkeleton } from "@/components/EmptyState";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { KnowledgeGraph } from "@/components/KnowledgeGraph";
@@ -60,19 +61,13 @@ export default function KnowledgeGraphPage() {
           <KnowledgeGraph text={selectedSummary.extracted_text || selectedSummary.summary_text} summary={selectedSummary.summary_text} />
         </motion.div>
       ) : loading ? (
-        <div className="grid gap-4 md:grid-cols-2">
-          {[1, 2, 3, 4].map(i => (
-            <Card key={i} className="glass-card p-6">
-              <Skeleton className="h-5 w-3/4 mb-3" />
-              <Skeleton className="h-4 w-1/2" />
-            </Card>
-          ))}
-        </div>
+        <SummaryListSkeleton count={6} />
       ) : summaries.length === 0 ? (
-        <Card className="glass-card p-12 text-center">
-          <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-          <p className="text-muted-foreground">No summaries yet. Create one from the Dashboard first!</p>
-        </Card>
+        <EmptyState
+          icon={Network}
+          title="No content to visualize"
+          description="Create your first summary from the Dashboard, then come back here to explore the knowledge graph."
+        />
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {summaries.map((s, i) => (

@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { FileText, LayoutDashboard, History, CreditCard, User, LogOut, Menu, BookOpen, Brain, Headphones, Share2 } from "lucide-react";
+import { FileText, LayoutDashboard, History, CreditCard, User, LogOut, Menu, BookOpen, Brain, Headphones, Share2, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useAuth } from "@/context/AuthContext";
@@ -14,6 +14,7 @@ const navItems = [
   { label: "Knowledge Graph", icon: Share2, href: "/graph" },
   { label: "Knowledge Library", icon: BookOpen, href: "/knowledge" },
   { label: "History", icon: History, href: "/history" },
+  { label: "Settings", icon: Settings, href: "/settings" },
   { label: "Pricing", icon: CreditCard, href: "/pricing" },
   { label: "Profile", icon: User, href: "/profile" },
 ];
