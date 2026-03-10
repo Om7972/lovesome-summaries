@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { FileText, LayoutDashboard, History, CreditCard, User, LogOut, Menu, BookOpen, Brain, Headphones, Share2 } from "lucide-react";
+import { FileText, LayoutDashboard, History, CreditCard, User, LogOut, Menu, BookOpen, Brain, Headphones, Share2, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useAuth } from "@/context/AuthContext";
