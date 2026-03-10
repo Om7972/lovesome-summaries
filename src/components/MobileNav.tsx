@@ -14,6 +14,7 @@ const navItems = [
   { label: "Knowledge Graph", icon: Share2, href: "/graph" },
   { label: "Knowledge Library", icon: BookOpen, href: "/knowledge" },
   { label: "History", icon: History, href: "/history" },
+  { label: "Settings", icon: Settings, href: "/settings" },
   { label: "Pricing", icon: CreditCard, href: "/pricing" },
   { label: "Profile", icon: User, href: "/profile" },
 ];
