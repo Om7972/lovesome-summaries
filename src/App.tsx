@@ -15,6 +15,7 @@ import KnowledgeLibrary from "./pages/KnowledgeLibrary";
 import StudyModePage from "./pages/StudyModePage";
 import PodcastPage from "./pages/PodcastPage";
 import KnowledgeGraphPage from "./pages/KnowledgeGraphPage";
+import SettingsPage from "./pages/SettingsPage";
 import NotFound from "./pages/NotFound";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { PricingSection } from "@/components/landing/PricingSection";
