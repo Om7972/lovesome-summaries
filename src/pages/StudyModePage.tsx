@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { BookOpen, Brain, FileText, RotateCcw, CheckCircle2, XCircle, ChevronLeft, ChevronRight, Loader2, Sparkles } from "lucide-react";
+import { BookOpen, Brain, FileText, RotateCcw, CheckCircle2, XCircle, ChevronLeft, ChevronRight, Loader2, Sparkles, GraduationCap } from "lucide-react";
+import { EmptyState, SummaryListSkeleton, GeneratingSkeleton } from "@/components/EmptyState";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
