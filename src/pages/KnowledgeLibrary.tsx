@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect } from "react";
-import { Search, Send, Loader2, Bot, User, BookOpen, FileText, Youtube, Video } from "lucide-react";
+import { Search, Send, Loader2, Bot, User, BookOpen, FileText, Youtube, Video, Sparkles, MessageSquare } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
@@ -20,10 +20,12 @@ interface ChatMessage {
 const typeIcons: Record<string, any> = { pdf: FileText, youtube: Youtube, video: Video };
 
 const suggestedQueries = [
-  "What videos mentioned deep learning?",
-  "Summarize what I've learned this week",
   "What are the key themes across my documents?",
+  "Summarize what I've learned this week",
+  "What videos mentioned deep learning?",
   "Find connections between my summaries",
+  "What are my most important takeaways?",
+  "Compare concepts across my PDFs",
 ];
 
 export default function KnowledgeLibrary() {
@@ -35,81 +37,79 @@ export default function KnowledgeLibrary() {
   const { toast } = useToast();
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages]);
 
   const askQuestion = async (question: string) => {
     if (!question.trim() || isLoading || !user) return;
-
-    const userMsg: ChatMessage = { role: "user", content: question };
-    setMessages(prev => [...prev, userMsg]);
+    setMessages(prev => [...prev, { role: "user", content: question }]);
     setInput("");
     setIsLoading(true);
-
     try {
       const { data, error } = await supabase.functions.invoke("search-knowledge", {
         body: { question, userId: user.id },
       });
-
       if (error) throw error;
       if (!data.success) throw new Error(data.message);
-
-      setMessages(prev => [...prev, {
-        role: "assistant",
-        content: data.answer,
-        sources: data.sources || [],
-      }]);
+      setMessages(prev => [...prev, { role: "assistant", content: data.answer, sources: data.sources || [] }]);
     } catch (err: any) {
-      setMessages(prev => [...prev, {
-        role: "assistant",
-        content: err.message || "Sorry, I couldn't search your knowledge base.",
-      }]);
+      setMessages(prev => [...prev, { role: "assistant", content: err.message || "Sorry, I couldn't search your knowledge base." }]);
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      askQuestion(input);
-    }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askQuestion(input); }
   };
 
   return (
-    <div className="max-w-4xl mx-auto">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold font-display flex items-center gap-3">
-          <BookOpen className="h-8 w-8 text-primary" />
-          Knowledge Library
-        </h1>
-        <p className="text-muted-foreground mt-1">Search across all your summaries and ask AI questions</p>
+    <div className="max-w-4xl mx-auto space-y-8">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold font-display flex items-center gap-3">
+            <div className="p-2.5 rounded-xl animated-gradient">
+              <BookOpen className="h-5 w-5 text-primary-foreground" />
+            </div>
+            Knowledge Library
+          </h1>
+          <p className="text-muted-foreground mt-2">Ask AI questions across all your summarized content</p>
+        </div>
+        {messages.length > 0 && (
+          <Button variant="outline" size="sm" onClick={() => setMessages([])} className="gap-1.5 text-xs">
+            <MessageSquare className="h-3 w-3" /> New Chat
+          </Button>
+        )}
       </div>
 
-      <Card className="p-6 bg-gradient-card backdrop-blur-sm border-border/50 shadow-lg">
+      <Card className="glass-card-strong p-6 shadow-lg">
         <div ref={scrollRef} className="h-[500px] overflow-y-auto pr-2 mb-4">
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center px-4">
-              <div className="p-6 rounded-full bg-muted/50 mb-6">
-                <Search className="h-12 w-12 text-muted-foreground" />
-              </div>
+              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="relative mb-6">
+                <div className="absolute inset-0 rounded-full bg-primary/10 blur-xl scale-150" />
+                <div className="relative p-6 rounded-full bg-gradient-to-br from-primary/15 to-primary/5 border border-primary/10">
+                  <Search className="h-10 w-10 text-primary/60" />
+                </div>
+              </motion.div>
               <h2 className="text-lg font-bold font-display mb-2">Ask your Knowledge Base</h2>
               <p className="text-sm text-muted-foreground mb-8 max-w-md">
-                Search across all your summarized content. I'll find relevant information and cite sources.
+                I'll search across all your documents, videos, and summaries to find relevant answers with cited sources.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-lg">
                 {suggestedQueries.map((q, i) => (
-                  <Button
-                    key={i}
-                    variant="outline"
-                    size="sm"
-                    className="text-xs h-auto py-3 px-4 text-left whitespace-normal"
-                    onClick={() => askQuestion(q)}
-                  >
-                    {q}
-                  </Button>
+                  <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-xs h-auto py-3 px-4 text-left whitespace-normal w-full hover:border-primary/40 transition-colors"
+                      onClick={() => askQuestion(q)}
+                    >
+                      <Sparkles className="h-3 w-3 shrink-0 mr-2 text-primary" />
+                      {q}
+                    </Button>
+                  </motion.div>
                 ))}
               </div>
             </div>
@@ -126,17 +126,11 @@ export default function KnowledgeLibrary() {
                     <div className={`p-1.5 rounded-full shrink-0 h-8 w-8 flex items-center justify-center ${
                       msg.role === "user" ? "bg-primary/10" : "bg-accent/10"
                     }`}>
-                      {msg.role === "user" ? (
-                        <User className="h-4 w-4 text-primary" />
-                      ) : (
-                        <Bot className="h-4 w-4 text-accent" />
-                      )}
+                      {msg.role === "user" ? <User className="h-4 w-4 text-primary" /> : <Bot className="h-4 w-4 text-accent" />}
                     </div>
-                    <div className={`max-w-[80%] ${msg.role === "user" ? "" : ""}`}>
+                    <div className="max-w-[80%]">
                       <div className={`rounded-2xl px-4 py-3 ${
-                        msg.role === "user"
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted"
+                        msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"
                       }`}>
                         {msg.role === "assistant" ? (
                           <div className="prose prose-sm max-w-none dark:prose-invert text-sm">
@@ -146,16 +140,15 @@ export default function KnowledgeLibrary() {
                           <p className="text-sm leading-relaxed">{msg.content}</p>
                         )}
                       </div>
-                      {/* Sources */}
                       {msg.sources && msg.sources.length > 0 && (
                         <div className="mt-2 flex flex-wrap gap-2">
                           {msg.sources.map((s, i) => {
                             const Icon = typeIcons[s.type] || FileText;
                             return (
-                              <div key={i} className="flex items-center gap-1.5 text-xs px-2 py-1 rounded-lg bg-muted/50 border border-border/50">
+                              <Badge key={i} variant="secondary" className="gap-1.5 text-xs font-normal">
                                 <Icon className="h-3 w-3 text-primary" />
                                 <span className="truncate max-w-[150px]">{s.title}</span>
-                              </div>
+                              </Badge>
                             );
                           })}
                         </div>
@@ -170,7 +163,12 @@ export default function KnowledgeLibrary() {
                     <Bot className="h-4 w-4 text-accent" />
                   </div>
                   <div className="bg-muted rounded-2xl px-4 py-3">
-                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    <div className="flex gap-1">
+                      {[0, 1, 2].map(i => (
+                        <motion.div key={i} className="h-2 w-2 rounded-full bg-muted-foreground/40"
+                          animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }} />
+                      ))}
+                    </div>
                   </div>
                 </div>
               )}
