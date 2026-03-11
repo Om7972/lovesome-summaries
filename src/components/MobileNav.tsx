@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { FileText, LayoutDashboard, History, CreditCard, User, LogOut, Menu, BookOpen, Brain, Headphones, Share2, Settings } from "lucide-react";
+import { FileText, LayoutDashboard, History, CreditCard, User, LogOut, Menu, BookOpen, Brain, Headphones, Share2, Settings, Flame } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useAuth } from "@/context/AuthContext";
@@ -10,6 +10,7 @@ import { useState } from "react";
 const navItems = [
   { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
   { label: "Study Mode", icon: Brain, href: "/study" },
+  { label: "Highlights", icon: Flame, href: "/highlights" },
   { label: "Podcasts", icon: Headphones, href: "/podcasts" },
   { label: "Knowledge Graph", icon: Share2, href: "/graph" },
   { label: "Knowledge Library", icon: BookOpen, href: "/knowledge" },
@@ -37,9 +38,7 @@ export function MobileNav() {
           <ThemeToggle />
           <Sheet open={open} onOpenChange={setOpen}>
             <SheetTrigger asChild>
-              <Button variant="ghost" size="icon">
-                <Menu className="h-5 w-5" />
-              </Button>
+              <Button variant="ghost" size="icon"><Menu className="h-5 w-5" /></Button>
             </SheetTrigger>
             <SheetContent side="right" className="w-64">
               <nav className="mt-8 space-y-1">
@@ -64,8 +63,7 @@ export function MobileNav() {
                   onClick={() => { signOut(); setOpen(false); }}
                   className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-muted-foreground hover:text-destructive w-full"
                 >
-                  <LogOut className="h-4 w-4" />
-                  Sign Out
+                  <LogOut className="h-4 w-4" /> Sign Out
                 </button>
               </nav>
             </SheetContent>

@@ -15,6 +15,7 @@ import KnowledgeLibrary from "./pages/KnowledgeLibrary";
 import StudyModePage from "./pages/StudyModePage";
 import PodcastPage from "./pages/PodcastPage";
 import KnowledgeGraphPage from "./pages/KnowledgeGraphPage";
+import HighlightsPage from "./pages/HighlightsPage";
 import SettingsPage from "./pages/SettingsPage";
 import NotFound from "./pages/NotFound";
 import { DashboardLayout } from "@/components/DashboardLayout";
@@ -22,7 +23,6 @@ import { PricingSection } from "@/components/landing/PricingSection";
 
 const queryClient = new QueryClient();
 
-// Standalone pricing page wrapper
 function PricingPage() {
   return (
     <div className="min-h-screen bg-gradient-hero">
@@ -50,6 +50,7 @@ const App = () => (
                 <Route path="/study" element={<StudyModePage />} />
                 <Route path="/podcasts" element={<PodcastPage />} />
                 <Route path="/graph" element={<KnowledgeGraphPage />} />
+                <Route path="/highlights" element={<HighlightsPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/profile" element={<ProfilePage />} />
                 <Route path="/pricing" element={<PricingPage />} />
