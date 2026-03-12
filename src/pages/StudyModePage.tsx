@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { BookOpen, Brain, FileText, RotateCcw, CheckCircle2, XCircle, ChevronLeft, ChevronRight, Loader2, Sparkles, GraduationCap, Youtube, Video, Search, Trophy, Target, Zap } from "lucide-react";
+import { BookOpen, Brain, FileText, RotateCcw, CheckCircle2, XCircle, ChevronLeft, ChevronRight, Loader2, Sparkles, GraduationCap, Youtube, Video, Search, Trophy, Target, Zap, Calendar, Clock, TrendingUp } from "lucide-react";
 import { EmptyState, SummaryListSkeleton } from "@/components/EmptyState";
+import { ExportMenu } from "@/components/ExportMenu";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -10,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { exportFlashcardsJSON, exportFlashcardsPDF } from "@/lib/export-utils";
 
 interface Summary {
   id: string;
@@ -24,12 +26,37 @@ interface Summary {
 interface Flashcard { question: string; answer: string; }
 interface QuizQuestion { question: string; options: string[]; answer: string; }
 
+interface CardReview {
+  card_index: number;
+  ease_factor: number;
+  interval_days: number;
+  repetitions: number;
+  next_review_at: string;
+  last_reviewed_at: string | null;
+}
+
 const typeIcons: Record<string, any> = { pdf: FileText, youtube: Youtube, video: Video };
 const typeColors: Record<string, string> = {
   pdf: "bg-primary/10 text-primary",
   youtube: "bg-destructive/10 text-destructive",
   video: "bg-accent/10 text-accent",
 };
+
+// SM-2 algorithm
+function calculateSM2(quality: number, prev: { ease: number; interval: number; reps: number }) {
+  let { ease, interval, reps } = prev;
+  if (quality >= 3) {
+    if (reps === 0) interval = 1;
+    else if (reps === 1) interval = 6;
+    else interval = Math.round(interval * ease);
+    reps += 1;
+  } else {
+    reps = 0;
+    interval = 1;
+  }
+  ease = Math.max(1.3, ease + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02)));
+  return { ease, interval, reps };
+}
 
 export default function StudyModePage() {
   const { user } = useAuth();
@@ -55,6 +82,13 @@ export default function StudyModePage() {
 
   const [activeTab, setActiveTab] = useState<"flashcards" | "quiz">("flashcards");
 
+  // Spaced repetition
+  const [cardReviews, setCardReviews] = useState<Map<number, CardReview>>(new Map());
+  const [dueCount, setDueCount] = useState(0);
+  const [reviewMode, setReviewMode] = useState(false);
+  const [dueCards, setDueCards] = useState<number[]>([]);
+  const [reviewIndex, setReviewIndex] = useState(0);
+
   useEffect(() => { if (user) fetchSummaries(); }, [user]);
 
   const fetchSummaries = async () => {
@@ -68,6 +102,21 @@ export default function StudyModePage() {
     setLoading(false);
   };
 
+  const fetchReviews = async (summaryId: string) => {
+    if (!user) return;
+    const { data } = await supabase
+      .from("flashcard_reviews")
+      .select("card_index, ease_factor, interval_days, repetitions, next_review_at, last_reviewed_at")
+      .eq("summary_id", summaryId)
+      .eq("user_id", user.id);
+    const map = new Map<number, CardReview>();
+    (data || []).forEach((r: any) => map.set(r.card_index, r));
+    setCardReviews(map);
+    const now = new Date();
+    const due = (data || []).filter((r: any) => new Date(r.next_review_at) <= now).length;
+    setDueCount(due);
+  };
+
   const generateStudyMaterials = async (summary: Summary) => {
     setSelectedSummary(summary);
     setGeneratingCards(true);
@@ -76,6 +125,7 @@ export default function StudyModePage() {
     setCurrentCard(0); setCurrentQuestion(0);
     setScore(0); setAnswered(0); setQuizComplete(false);
     setIsFlipped(false); setSelectedAnswer(null); setKnownCards(new Set());
+    setReviewMode(false); setDueCards([]); setReviewIndex(0);
     try {
       const { data, error } = await supabase.functions.invoke("generate-quiz", {
         body: { text: summary.extracted_text || summary.summary_text, summary: summary.summary_text },
@@ -83,6 +133,7 @@ export default function StudyModePage() {
       if (error) throw error;
       setFlashcards(data.flashcards || []);
       setQuizQuestions(data.questions || []);
+      await fetchReviews(summary.id);
     } catch (e) {
       toast({ title: "Error", description: "Failed to generate study materials.", variant: "destructive" });
     } finally {
@@ -117,11 +168,98 @@ export default function StudyModePage() {
     });
   };
 
+  // Spaced repetition: rate card quality (0-5)
+  const rateCard = async (quality: number) => {
+    if (!user || !selectedSummary) return;
+    const idx = reviewMode ? dueCards[reviewIndex] : currentCard;
+    const prev = cardReviews.get(idx);
+    const sm2 = calculateSM2(quality, {
+      ease: prev?.ease_factor ?? 2.5,
+      interval: prev?.interval_days ?? 0,
+      reps: prev?.repetitions ?? 0,
+    });
+    const nextReview = new Date();
+    nextReview.setDate(nextReview.getDate() + sm2.interval);
+
+    const reviewData = {
+      user_id: user.id,
+      summary_id: selectedSummary.id,
+      card_index: idx,
+      question: flashcards[idx]?.question || "",
+      answer: flashcards[idx]?.answer || "",
+      ease_factor: sm2.ease,
+      interval_days: sm2.interval,
+      repetitions: sm2.reps,
+      next_review_at: nextReview.toISOString(),
+      last_reviewed_at: new Date().toISOString(),
+    };
+
+    await supabase.from("flashcard_reviews").upsert(reviewData, { onConflict: "user_id,summary_id,card_index" });
+
+    setCardReviews(prev => {
+      const next = new Map(prev);
+      next.set(idx, {
+        card_index: idx,
+        ease_factor: sm2.ease,
+        interval_days: sm2.interval,
+        repetitions: sm2.reps,
+        next_review_at: nextReview.toISOString(),
+        last_reviewed_at: new Date().toISOString(),
+      });
+      return next;
+    });
+
+    if (quality >= 3) {
+      setKnownCards(prev => new Set(prev).add(idx));
+    }
+
+    // Advance card
+    if (reviewMode) {
+      if (reviewIndex + 1 < dueCards.length) {
+        setReviewIndex(r => r + 1);
+      } else {
+        setReviewMode(false);
+        toast({ title: "Review complete!", description: "All due cards reviewed." });
+      }
+    } else {
+      if (currentCard < flashcards.length - 1) setCurrentCard(c => c + 1);
+    }
+    setIsFlipped(false);
+  };
+
+  const startReviewMode = () => {
+    const now = new Date();
+    const due: number[] = [];
+    cardReviews.forEach((r, idx) => {
+      if (new Date(r.next_review_at) <= now) due.push(idx);
+    });
+    // Also add cards never reviewed
+    flashcards.forEach((_, idx) => {
+      if (!cardReviews.has(idx) && !due.includes(idx)) due.push(idx);
+    });
+    setDueCards(due);
+    setReviewIndex(0);
+    setReviewMode(true);
+    setIsFlipped(false);
+  };
+
+  const getCardStatus = (idx: number) => {
+    const review = cardReviews.get(idx);
+    if (!review) return { label: "New", color: "text-muted-foreground" };
+    const now = new Date();
+    if (new Date(review.next_review_at) <= now) return { label: "Due", color: "text-destructive" };
+    if (review.repetitions >= 3) return { label: "Mastered", color: "text-primary" };
+    return { label: `${review.interval_days}d`, color: "text-amber-500" };
+  };
+
   const filtered = summaries.filter(s =>
     !search || s.original_source.toLowerCase().includes(search.toLowerCase())
   );
 
   const scorePercent = quizQuestions.length > 0 ? Math.round((score / quizQuestions.length) * 100) : 0;
+  const activeCardIdx = reviewMode ? dueCards[reviewIndex] : currentCard;
+  const activeCard = flashcards[activeCardIdx];
+  const activeStatus = activeCard ? getCardStatus(activeCardIdx) : null;
 
   if (!selectedSummary) {
     return (
@@ -147,7 +285,6 @@ export default function StudyModePage() {
               <Input placeholder="Search summaries..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
             </div>
 
-            {/* Feature cards */}
             <div className="grid grid-cols-2 gap-4">
               {[
                 { icon: BookOpen, title: "Flashcards", desc: "Flip to reveal answers", color: "text-primary" },
@@ -196,16 +333,24 @@ export default function StudyModePage() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-8">
-      <div>
-        <Button variant="ghost" size="sm" onClick={() => setSelectedSummary(null)} className="gap-2 text-muted-foreground mb-2">
-          <ChevronLeft className="h-4 w-4" /> Back to summaries
-        </Button>
-        <h1 className="text-2xl font-bold font-display truncate">{selectedSummary.original_source || "Study Session"}</h1>
+      <div className="flex items-center justify-between">
+        <div>
+          <Button variant="ghost" size="sm" onClick={() => setSelectedSummary(null)} className="gap-2 text-muted-foreground mb-2">
+            <ChevronLeft className="h-4 w-4" /> Back to summaries
+          </Button>
+          <h1 className="text-2xl font-bold font-display truncate">{selectedSummary.original_source || "Study Session"}</h1>
+        </div>
+        {flashcards.length > 0 && (
+          <ExportMenu
+            onExportJSON={() => exportFlashcardsJSON(flashcards, selectedSummary.original_source)}
+            onExportPDF={() => exportFlashcardsPDF(flashcards, selectedSummary.original_source)}
+          />
+        )}
       </div>
 
       {/* Tab Toggle */}
       <div className="flex gap-2">
-        <Button variant={activeTab === "flashcards" ? "default" : "outline"} onClick={() => setActiveTab("flashcards")} className="gap-2">
+        <Button variant={activeTab === "flashcards" ? "default" : "outline"} onClick={() => { setActiveTab("flashcards"); setReviewMode(false); }} className="gap-2">
           <BookOpen className="h-4 w-4" /> Flashcards {flashcards.length > 0 && `(${flashcards.length})`}
         </Button>
         <Button variant={activeTab === "quiz" ? "default" : "outline"} onClick={() => setActiveTab("quiz")} className="gap-2">
@@ -227,49 +372,96 @@ export default function StudyModePage() {
             </Card>
           ) : (
             <div className="space-y-6">
+              {/* Spaced Repetition Stats Bar */}
+              <Card className="glass-card p-4">
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="h-4 w-4 text-primary" />
+                    <span className="text-xs font-medium">Spaced Repetition</span>
+                  </div>
+                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-destructive" /> {flashcards.filter((_, i) => { const s = getCardStatus(i); return s.label === "Due" || s.label === "New"; }).length} due</span>
+                    <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" /> {flashcards.filter((_, i) => { const s = getCardStatus(i); return s.label !== "Due" && s.label !== "New" && s.label !== "Mastered"; }).length} learning</span>
+                    <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-primary" /> {flashcards.filter((_, i) => getCardStatus(i).label === "Mastered").length} mastered</span>
+                  </div>
+                  <Button size="sm" variant="outline" onClick={startReviewMode} className="ml-auto gap-1.5 text-xs">
+                    <TrendingUp className="h-3.5 w-3.5" /> Review Due Cards
+                  </Button>
+                </div>
+              </Card>
+
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <span className="text-sm text-muted-foreground">Card {currentCard + 1} of {flashcards.length}</span>
+                  <span className="text-sm text-muted-foreground">
+                    {reviewMode ? `Review ${reviewIndex + 1} of ${dueCards.length}` : `Card ${currentCard + 1} of ${flashcards.length}`}
+                  </span>
+                  {activeStatus && (
+                    <Badge variant="secondary" className={`text-xs gap-1 ${activeStatus.color}`}>
+                      <Clock className="h-3 w-3" /> {activeStatus.label}
+                    </Badge>
+                  )}
                   <Badge variant="secondary" className="text-xs gap-1">
                     <Target className="h-3 w-3" /> {knownCards.size}/{flashcards.length} mastered
                   </Badge>
                 </div>
-                <Progress value={((currentCard + 1) / flashcards.length) * 100} className="w-48 h-2" />
+                <Progress value={((reviewMode ? reviewIndex + 1 : currentCard + 1) / (reviewMode ? dueCards.length : flashcards.length)) * 100} className="w-48 h-2" />
               </div>
 
-              <div className="perspective-1000 cursor-pointer mx-auto max-w-xl" onClick={() => setIsFlipped(!isFlipped)}>
-                <AnimatePresence mode="wait">
-                  <motion.div
-                    key={`${currentCard}-${isFlipped}`}
-                    initial={{ rotateY: 90, opacity: 0 }}
-                    animate={{ rotateY: 0, opacity: 1 }}
-                    exit={{ rotateY: -90, opacity: 0 }}
-                    transition={{ duration: 0.3 }}
-                  >
-                    <Card className={`glass-card-strong p-12 min-h-[280px] flex flex-col items-center justify-center text-center relative ${isFlipped ? "border-primary/30" : ""} ${knownCards.has(currentCard) ? "ring-2 ring-green-500/30" : ""}`}>
-                      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-4">
-                        {isFlipped ? "Answer" : "Question"}
-                      </span>
-                      <p className="text-lg font-medium leading-relaxed">
-                        {isFlipped ? flashcards[currentCard].answer : flashcards[currentCard].question}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-6">Click to flip</p>
-                    </Card>
-                  </motion.div>
-                </AnimatePresence>
-              </div>
+              {activeCard && (
+                <div className="perspective-1000 cursor-pointer mx-auto max-w-xl" onClick={() => setIsFlipped(!isFlipped)}>
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={`${activeCardIdx}-${isFlipped}`}
+                      initial={{ rotateY: 90, opacity: 0 }}
+                      animate={{ rotateY: 0, opacity: 1 }}
+                      exit={{ rotateY: -90, opacity: 0 }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      <Card className={`glass-card-strong p-12 min-h-[280px] flex flex-col items-center justify-center text-center relative ${isFlipped ? "border-primary/30" : ""} ${knownCards.has(activeCardIdx) ? "ring-2 ring-primary/30" : ""}`}>
+                        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-4">
+                          {isFlipped ? "Answer" : "Question"}
+                        </span>
+                        <p className="text-lg font-medium leading-relaxed">
+                          {isFlipped ? activeCard.answer : activeCard.question}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-6">Click to flip</p>
+                      </Card>
+                    </motion.div>
+                  </AnimatePresence>
+                </div>
+              )}
 
-              <div className="flex justify-center gap-3">
-                <Button variant="outline" size="sm" disabled={currentCard === 0} onClick={() => { setCurrentCard(c => c - 1); setIsFlipped(false); }}>
-                  <ChevronLeft className="h-4 w-4" /> Previous
-                </Button>
-                <Button variant={knownCards.has(currentCard) ? "default" : "outline"} size="sm" onClick={toggleKnown} className="gap-1.5">
-                  <CheckCircle2 className="h-4 w-4" /> {knownCards.has(currentCard) ? "Mastered" : "Mark Known"}
-                </Button>
-                <Button variant="outline" size="sm" disabled={currentCard === flashcards.length - 1} onClick={() => { setCurrentCard(c => c + 1); setIsFlipped(false); }}>
-                  Next <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
+              {/* Rating buttons (shown after flip) */}
+              {isFlipped && (
+                <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex justify-center gap-2">
+                  <Button variant="destructive" size="sm" onClick={() => rateCard(1)} className="text-xs gap-1">
+                    <XCircle className="h-3.5 w-3.5" /> Again
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => rateCard(3)} className="text-xs gap-1">
+                    <Clock className="h-3.5 w-3.5" /> Hard
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => rateCard(4)} className="text-xs gap-1">
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Good
+                  </Button>
+                  <Button size="sm" onClick={() => rateCard(5)} className="text-xs gap-1">
+                    <Sparkles className="h-3.5 w-3.5" /> Easy
+                  </Button>
+                </motion.div>
+              )}
+
+              {!reviewMode && !isFlipped && (
+                <div className="flex justify-center gap-3">
+                  <Button variant="outline" size="sm" disabled={currentCard === 0} onClick={() => { setCurrentCard(c => c - 1); setIsFlipped(false); }}>
+                    <ChevronLeft className="h-4 w-4" /> Previous
+                  </Button>
+                  <Button variant={knownCards.has(currentCard) ? "default" : "outline"} size="sm" onClick={toggleKnown} className="gap-1.5">
+                    <CheckCircle2 className="h-4 w-4" /> {knownCards.has(currentCard) ? "Mastered" : "Mark Known"}
+                  </Button>
+                  <Button variant="outline" size="sm" disabled={currentCard === flashcards.length - 1} onClick={() => { setCurrentCard(c => c + 1); setIsFlipped(false); }}>
+                    Next <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </div>

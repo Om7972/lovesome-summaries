@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Flame, FileText, Youtube, Video, Search, Clock, Zap, AlertTriangle, Loader2, ExternalLink } from "lucide-react";
 import { EmptyState, SummaryListSkeleton } from "@/components/EmptyState";
+import { ExportMenu } from "@/components/ExportMenu";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -9,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { exportHighlightsJSON, exportHighlightsPDF } from "@/lib/export-utils";
 
 interface Summary {
   id: string;
