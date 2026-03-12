@@ -14,6 +14,59 @@ export type Database = {
   }
   public: {
     Tables: {
+      flashcard_reviews: {
+        Row: {
+          answer: string
+          card_index: number
+          created_at: string
+          ease_factor: number
+          id: string
+          interval_days: number
+          last_reviewed_at: string | null
+          next_review_at: string
+          question: string
+          repetitions: number
+          summary_id: string
+          user_id: string
+        }
+        Insert: {
+          answer: string
+          card_index: number
+          created_at?: string
+          ease_factor?: number
+          id?: string
+          interval_days?: number
+          last_reviewed_at?: string | null
+          next_review_at?: string
+          question: string
+          repetitions?: number
+          summary_id: string
+          user_id: string
+        }
+        Update: {
+          answer?: string
+          card_index?: number
+          created_at?: string
+          ease_factor?: number
+          id?: string
+          interval_days?: number
+          last_reviewed_at?: string | null
+          next_review_at?: string
+          question?: string
+          repetitions?: number
+          summary_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "flashcard_reviews_summary_id_fkey"
+            columns: ["summary_id"]
+            isOneToOne: false
+            referencedRelation: "summaries"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       highlights: {
         Row: {
           created_at: string

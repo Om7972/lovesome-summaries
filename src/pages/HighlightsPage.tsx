@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Flame, FileText, Youtube, Video, Search, Clock, Zap, AlertTriangle, Loader2, ExternalLink } from "lucide-react";
 import { EmptyState, SummaryListSkeleton } from "@/components/EmptyState";
+import { ExportMenu } from "@/components/ExportMenu";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -9,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { exportHighlightsJSON, exportHighlightsPDF } from "@/lib/export-utils";
 
 interface Summary {
   id: string;
@@ -129,14 +131,22 @@ export default function HighlightsPage() {
 
           {/* Summary info */}
           <Card className="glass-card-strong p-5">
-            <div className="flex items-center gap-3">
-              <div className={`p-2.5 rounded-xl ${typeColors[selectedSummary.type] || "bg-primary/10 text-primary"}`}>
-                {(() => { const Icon = typeIcons[selectedSummary.type] || FileText; return <Icon className="h-5 w-5" />; })()}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`p-2.5 rounded-xl ${typeColors[selectedSummary.type] || "bg-primary/10 text-primary"}`}>
+                  {(() => { const Icon = typeIcons[selectedSummary.type] || FileText; return <Icon className="h-5 w-5" />; })()}
+                </div>
+                <div>
+                  <p className="font-semibold font-display">{selectedSummary.original_source || "Untitled"}</p>
+                  <p className="text-xs text-muted-foreground capitalize">{selectedSummary.type} · {new Date(selectedSummary.created_at).toLocaleDateString()}</p>
+                </div>
               </div>
-              <div>
-                <p className="font-semibold font-display">{selectedSummary.original_source || "Untitled"}</p>
-                <p className="text-xs text-muted-foreground capitalize">{selectedSummary.type} · {new Date(selectedSummary.created_at).toLocaleDateString()}</p>
-              </div>
+              {highlights.length > 0 && (
+                <ExportMenu
+                  onExportJSON={() => exportHighlightsJSON(highlights, selectedSummary.original_source)}
+                  onExportPDF={() => exportHighlightsPDF(highlights, selectedSummary.original_source)}
+                />
+              )}
             </div>
           </Card>
 
