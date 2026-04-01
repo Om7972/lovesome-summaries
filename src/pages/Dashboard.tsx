@@ -2,13 +2,15 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   FileText, Video, ArrowLeft, Youtube, Clock, BarChart3, Zap, TrendingUp,
-  Sparkles, Search, Filter, Trash2, Eye, Loader2, Copy, Check, Download, Languages
+  Sparkles, Search, Filter, Trash2, Eye, Loader2, Copy, Check, Download, Languages,
+  BookOpen, Calendar
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -23,6 +25,8 @@ import { LearningMode } from "@/components/LearningMode";
 import { SmartHighlights } from "@/components/SmartHighlights";
 import { PodcastPlayer } from "@/components/PodcastPlayer";
 import { KnowledgeGraph } from "@/components/KnowledgeGraph";
+import { ExportMenu } from "@/components/ExportMenu";
+import { exportSummariesJSON, exportSummariesPDF } from "@/lib/export-utils";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
@@ -74,6 +78,11 @@ export default function Dashboard() {
   // All summaries for analytics (last 7 days)
   const [allSummaries, setAllSummaries] = useState<Summary[]>([]);
 
+  // Spaced repetition
+  const [dueCards, setDueCards] = useState(0);
+  const [totalCards, setTotalCards] = useState(0);
+  const [masteredCards, setMasteredCards] = useState(0);
+
   const { user, profile, canSummarize, todaySummaryCount, refreshUsage } = useAuth();
   const { toast } = useToast();
 
@@ -107,6 +116,20 @@ export default function Dashboard() {
 
   useEffect(() => { fetchRecentSummaries(); }, [user, historyFilter]);
   useEffect(() => { fetchAllSummaries(); }, [user]);
+  useEffect(() => { if (user) fetchFlashcardStats(); }, [user]);
+
+  const fetchFlashcardStats = async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from("flashcard_reviews")
+      .select("card_index, ease_factor, interval_days, repetitions, next_review_at")
+      .eq("user_id", user.id);
+    if (!data) return;
+    setTotalCards(data.length);
+    const now = new Date();
+    setDueCards(data.filter(r => new Date(r.next_review_at) <= now).length);
+    setMasteredCards(data.filter(r => r.repetitions >= 3).length);
+  };
 
   const totalSummaries = recentSummaries.length;
   const pdfCount = recentSummaries.filter(s => s.type === "pdf").length;
@@ -347,6 +370,51 @@ export default function Dashboard() {
               ))}
             </div>
 
+            {/* Spaced Repetition Widget */}
+            {totalCards > 0 && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
+                <Card className="glass-card-strong p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-xl bg-primary/10">
+                        <BookOpen className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold font-display">Spaced Repetition</h3>
+                        <p className="text-xs text-muted-foreground">Track your flashcard mastery</p>
+                      </div>
+                    </div>
+                    <Button asChild size="sm" variant="outline" className="gap-1.5 text-xs">
+                      <Link to="/study"><Calendar className="h-3.5 w-3.5" /> Review Now</Link>
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="text-center p-3 rounded-xl bg-destructive/10">
+                      <p className="text-2xl font-bold text-destructive">{dueCards}</p>
+                      <p className="text-xs text-muted-foreground">Due for Review</p>
+                    </div>
+                    <div className="text-center p-3 rounded-xl bg-amber-500/10">
+                      <p className="text-2xl font-bold text-amber-500">{totalCards - masteredCards - dueCards > 0 ? totalCards - masteredCards - dueCards : 0}</p>
+                      <p className="text-xs text-muted-foreground">Learning</p>
+                    </div>
+                    <div className="text-center p-3 rounded-xl bg-primary/10">
+                      <p className="text-2xl font-bold text-primary">{masteredCards}</p>
+                      <p className="text-xs text-muted-foreground">Mastered</p>
+                    </div>
+                  </div>
+                  {totalCards > 0 && (
+                    <div className="mt-4">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
+                        <span>Mastery Progress</span>
+                        <span>{Math.round((masteredCards / totalCards) * 100)}%</span>
+                      </div>
+                      <Progress value={(masteredCards / totalCards) * 100} className="h-2" />
+                    </div>
+                  )}
+                </Card>
+              </motion.div>
+            )}
+
             {/* Activity Chart */}
             <div className="mb-8">
               <ActivityChart summaries={allSummaries} />
@@ -392,7 +460,15 @@ export default function Dashboard() {
             {/* Recent History */}
             <div>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
-                <h2 className="text-xl font-bold font-display">Recent Summaries</h2>
+                <div className="flex items-center gap-3">
+                  <h2 className="text-xl font-bold font-display">Recent Summaries</h2>
+                  {recentSummaries.length > 0 && (
+                    <ExportMenu
+                      onExportJSON={() => exportSummariesJSON(recentSummaries)}
+                      onExportPDF={() => exportSummariesPDF(recentSummaries)}
+                    />
+                  )}
+                </div>
                 <div className="flex gap-2 flex-wrap">
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />

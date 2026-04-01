@@ -131,8 +131,9 @@ export default function StudyModePage() {
         body: { text: summary.extracted_text || summary.summary_text, summary: summary.summary_text },
       });
       if (error) throw error;
+      if (!data.success) throw new Error(data.message);
       setFlashcards(data.flashcards || []);
-      setQuizQuestions(data.questions || []);
+      setQuizQuestions(data.quiz_questions || []);
       await fetchReviews(summary.id);
     } catch (e) {
       toast({ title: "Error", description: "Failed to generate study materials.", variant: "destructive" });
