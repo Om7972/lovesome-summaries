@@ -460,7 +460,15 @@ export default function Dashboard() {
             {/* Recent History */}
             <div>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
-                <h2 className="text-xl font-bold font-display">Recent Summaries</h2>
+                <div className="flex items-center gap-3">
+                  <h2 className="text-xl font-bold font-display">Recent Summaries</h2>
+                  {recentSummaries.length > 0 && (
+                    <ExportMenu
+                      onExportJSON={() => exportSummariesJSON(recentSummaries)}
+                      onExportPDF={() => exportSummariesPDF(recentSummaries)}
+                    />
+                  )}
+                </div>
                 <div className="flex gap-2 flex-wrap">
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
