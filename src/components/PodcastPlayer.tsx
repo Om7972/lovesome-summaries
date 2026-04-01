@@ -30,24 +30,11 @@ export function PodcastPlayer({ summary }: PodcastPlayerProps) {
   const generate = async () => {
     setIsGenerating(true);
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-podcast`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-          },
-          body: JSON.stringify({ text: summary, voiceId: selectedVoice }),
-        }
-      );
+      const { data, error } = await supabase.functions.invoke("generate-podcast", {
+        body: { text: summary, voiceId: selectedVoice },
+      });
 
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err.message || "Failed to generate podcast");
-      }
-
-      const data = await response.json();
+      if (error) throw error;
       if (!data.success) throw new Error(data.message);
 
       const url = `data:audio/mpeg;base64,${data.audioContent}`;
