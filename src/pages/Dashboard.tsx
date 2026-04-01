@@ -370,6 +370,51 @@ export default function Dashboard() {
               ))}
             </div>
 
+            {/* Spaced Repetition Widget */}
+            {totalCards > 0 && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
+                <Card className="glass-card-strong p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-xl bg-primary/10">
+                        <BookOpen className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold font-display">Spaced Repetition</h3>
+                        <p className="text-xs text-muted-foreground">Track your flashcard mastery</p>
+                      </div>
+                    </div>
+                    <Button asChild size="sm" variant="outline" className="gap-1.5 text-xs">
+                      <Link to="/study"><Calendar className="h-3.5 w-3.5" /> Review Now</Link>
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="text-center p-3 rounded-xl bg-destructive/10">
+                      <p className="text-2xl font-bold text-destructive">{dueCards}</p>
+                      <p className="text-xs text-muted-foreground">Due for Review</p>
+                    </div>
+                    <div className="text-center p-3 rounded-xl bg-amber-500/10">
+                      <p className="text-2xl font-bold text-amber-500">{totalCards - masteredCards - dueCards > 0 ? totalCards - masteredCards - dueCards : 0}</p>
+                      <p className="text-xs text-muted-foreground">Learning</p>
+                    </div>
+                    <div className="text-center p-3 rounded-xl bg-primary/10">
+                      <p className="text-2xl font-bold text-primary">{masteredCards}</p>
+                      <p className="text-xs text-muted-foreground">Mastered</p>
+                    </div>
+                  </div>
+                  {totalCards > 0 && (
+                    <div className="mt-4">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
+                        <span>Mastery Progress</span>
+                        <span>{Math.round((masteredCards / totalCards) * 100)}%</span>
+                      </div>
+                      <Progress value={(masteredCards / totalCards) * 100} className="h-2" />
+                    </div>
+                  )}
+                </Card>
+              </motion.div>
+            )}
+
             {/* Activity Chart */}
             <div className="mb-8">
               <ActivityChart summaries={allSummaries} />
