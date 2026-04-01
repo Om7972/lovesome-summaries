@@ -78,6 +78,11 @@ export default function Dashboard() {
   // All summaries for analytics (last 7 days)
   const [allSummaries, setAllSummaries] = useState<Summary[]>([]);
 
+  // Spaced repetition
+  const [dueCards, setDueCards] = useState(0);
+  const [totalCards, setTotalCards] = useState(0);
+  const [masteredCards, setMasteredCards] = useState(0);
+
   const { user, profile, canSummarize, todaySummaryCount, refreshUsage } = useAuth();
   const { toast } = useToast();
 
