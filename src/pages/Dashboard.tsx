@@ -2,13 +2,15 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   FileText, Video, ArrowLeft, Youtube, Clock, BarChart3, Zap, TrendingUp,
-  Sparkles, Search, Filter, Trash2, Eye, Loader2, Copy, Check, Download, Languages
+  Sparkles, Search, Filter, Trash2, Eye, Loader2, Copy, Check, Download, Languages,
+  BookOpen, Calendar
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -23,6 +25,8 @@ import { LearningMode } from "@/components/LearningMode";
 import { SmartHighlights } from "@/components/SmartHighlights";
 import { PodcastPlayer } from "@/components/PodcastPlayer";
 import { KnowledgeGraph } from "@/components/KnowledgeGraph";
+import { ExportMenu } from "@/components/ExportMenu";
+import { exportSummariesJSON, exportSummariesPDF } from "@/lib/export-utils";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
