@@ -116,6 +116,20 @@ export default function Dashboard() {
 
   useEffect(() => { fetchRecentSummaries(); }, [user, historyFilter]);
   useEffect(() => { fetchAllSummaries(); }, [user]);
+  useEffect(() => { if (user) fetchFlashcardStats(); }, [user]);
+
+  const fetchFlashcardStats = async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from("flashcard_reviews")
+      .select("card_index, ease_factor, interval_days, repetitions, next_review_at")
+      .eq("user_id", user.id);
+    if (!data) return;
+    setTotalCards(data.length);
+    const now = new Date();
+    setDueCards(data.filter(r => new Date(r.next_review_at) <= now).length);
+    setMasteredCards(data.filter(r => r.repetitions >= 3).length);
+  };
 
   const totalSummaries = recentSummaries.length;
   const pdfCount = recentSummaries.filter(s => s.type === "pdf").length;
