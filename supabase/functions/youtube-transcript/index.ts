@@ -252,7 +252,7 @@ async function getTranscript(videoId: string): Promise<{ text: string; timestamp
             }
             
             if (cueGroups) {
-              const segments = body.cueGroups.map((group: any) => {
+              const segments = cueGroups.map((group: any) => {
                 const cue = group.transcriptCueGroupRenderer?.cues?.[0]?.transcriptCueRenderer;
                 if (!cue) return null;
                 return {
