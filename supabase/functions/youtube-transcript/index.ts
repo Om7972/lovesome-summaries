@@ -125,15 +125,51 @@ async function getTranscriptViaInnerTube(videoId: string): Promise<{ text: strin
   const captionResponse = await fetch(captionUrl);
   const captionXml = await captionResponse.text();
 
-  const textMatches = [...captionXml.matchAll(/<text start="([^"]+)"[^>]*>([^<]*)<\/text>/g)];
+  console.log(`[youtube-transcript] Caption XML length: ${captionXml.length}, first 200 chars: ${captionXml.substring(0, 200)}`);
+
+  // More flexible regex that handles various XML formats including nested tags and empty content
+  const textMatches = [...captionXml.matchAll(/<text start="([^"]+)"[^>]*>([\s\S]*?)<\/text>/g)];
 
   if (textMatches.length === 0) {
-    throw new Error('Failed to parse captions from video.');
+    // Try alternative format: JSON-based captions
+    console.warn('[youtube-transcript] XML regex found 0 matches, trying JSON format...');
+    
+    // Some caption URLs return JSON when fmt=json3 is appended
+    const jsonUrl = captionUrl + (captionUrl.includes('?') ? '&' : '?') + 'fmt=json3';
+    const jsonResponse = await fetch(jsonUrl);
+    const jsonText = await jsonResponse.text();
+    
+    try {
+      const jsonData = JSON.parse(jsonText);
+      const events = jsonData.events || [];
+      const segments = events
+        .filter((e: any) => e.segs && e.tStartMs !== undefined)
+        .map((e: any) => ({
+          offset: (e.tStartMs || 0) / 1000,
+          text: (e.segs || []).map((s: any) => s.utf8 || '').join('').trim(),
+        }))
+        .filter((item: any) => item.text.length > 0);
+
+      if (segments.length === 0) {
+        throw new Error('Failed to parse captions from video.');
+      }
+
+      const fullText = segments.map((item: any) => item.text).join(' ');
+      const timestamps = segments.map((item: any) => ({
+        time: formatTime(item.offset),
+        text: item.text,
+      }));
+
+      return { text: fullText, timestamps };
+    } catch (jsonErr) {
+      console.error('[youtube-transcript] JSON parse also failed:', jsonErr);
+      throw new Error('Failed to parse captions from video.');
+    }
   }
 
   const transcriptData = textMatches.map(match => ({
     offset: parseFloat(match[1]),
-    text: decodeHTMLEntities(match[2]),
+    text: decodeHTMLEntities(match[2].replace(/<[^>]+>/g, '')),
   })).filter(item => item.text.length > 0);
 
   const fullText = transcriptData.map(item => item.text).join(' ');
