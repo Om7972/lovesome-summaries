@@ -121,11 +121,53 @@ async function getTranscriptViaInnerTube(videoId: string): Promise<{ text: strin
     throw new Error('No captions available for this video. Please ensure the video has captions enabled.');
   }
 
-  // Fetch and parse the caption XML
-  const captionResponse = await fetch(captionUrl);
-  const captionXml = await captionResponse.text();
+  // Unescape the URL (YouTube encodes ampersands)
+  captionUrl = captionUrl.replace(/\\u0026/g, '&').replace(/&amp;/g, '&');
+  console.log(`[youtube-transcript] Caption URL: ${captionUrl.substring(0, 100)}...`);
 
-  console.log(`[youtube-transcript] Caption XML length: ${captionXml.length}, first 200 chars: ${captionXml.substring(0, 200)}`);
+  // Try JSON format first (more reliable)
+  const jsonUrl = captionUrl + (captionUrl.includes('?') ? '&' : '?') + 'fmt=json3';
+  const jsonResponse = await fetch(jsonUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    },
+  });
+  const jsonText = await jsonResponse.text();
+  console.log(`[youtube-transcript] JSON response length: ${jsonText.length}`);
+
+  if (jsonText.length > 0) {
+    try {
+      const jsonData = JSON.parse(jsonText);
+      const events = jsonData.events || [];
+      const segments = events
+        .filter((e: any) => e.segs && e.tStartMs !== undefined)
+        .map((e: any) => ({
+          offset: (e.tStartMs || 0) / 1000,
+          text: (e.segs || []).map((s: any) => s.utf8 || '').join('').replace(/\n/g, ' ').trim(),
+        }))
+        .filter((item: any) => item.text.length > 0);
+
+      if (segments.length > 0) {
+        const fullText = segments.map((item: any) => item.text).join(' ');
+        const timestamps = segments.map((item: any) => ({
+          time: formatTime(item.offset),
+          text: item.text,
+        }));
+        return { text: fullText, timestamps };
+      }
+    } catch (jsonErr) {
+      console.warn('[youtube-transcript] JSON parse failed, trying XML:', jsonErr);
+    }
+  }
+
+  // Fallback to XML format
+  const captionResponse = await fetch(captionUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    },
+  });
+  const captionXml = await captionResponse.text();
+  console.log(`[youtube-transcript] XML response length: ${captionXml.length}`);
 
   // More flexible regex that handles various XML formats including nested tags and empty content
   const textMatches = [...captionXml.matchAll(/<text start="([^"]+)"[^>]*>([\s\S]*?)<\/text>/g)];
