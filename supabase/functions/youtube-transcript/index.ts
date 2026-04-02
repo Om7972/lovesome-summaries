@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.79.0";
+import { YoutubeTranscript } from "npm:youtube-transcript@1.2.1";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -36,248 +37,6 @@ function formatTime(seconds: number): string {
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-}
-
-function decodeHTMLEntities(text: string): string {
-  return text
-    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ')
-    .replace(/&#(\d+);/g, (_, num) => String.fromCharCode(parseInt(num)))
-    .replace(/\n/g, ' ').trim();
-}
-
-const INNERTUBE_CLIENT = {
-  hl: 'en',
-  gl: 'US',
-  clientName: 'WEB',
-  clientVersion: '2.20241201.00.00',
-};
-
-async function getTranscript(videoId: string): Promise<{ text: string; timestamps: Array<{ time: string; text: string }> }> {
-  // Use innertube get_transcript API which is more reliable from server-side
-  // First, get the video page to extract serialized share entity
-  const pageResp = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept-Language': 'en-US,en;q=0.9',
-    },
-  });
-  const html = await pageResp.text();
-  console.log(`[youtube-transcript] Page length: ${html.length}`);
-
-  // Method 1: Try to extract transcript from the page data directly
-  // Look for engagementPanels with transcript data
-  const transcriptPanelMatch = html.match(/"transcriptRenderer":\s*(\{[\s\S]*?\})\s*,\s*"trackingParams"/);
-  
-  // Method 2: Use innertube get_transcript API
-  // We need the serializedShareEntity or params from the page
-  const paramsMatch = html.match(/"serializedShareEntity":"([^"]+)"/);
-  
-  // Method 3: Direct approach - scrape from timedtext with proper cookies
-  // Extract consent cookie from page response
-  const setCookies = pageResp.headers.get('set-cookie') || '';
-  
-  // Try to get the player response
-  let playerResponse: any = null;
-  const prMatch = html.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\})\s*;\s*(?:var\s|<\/script)/s);
-  if (prMatch) {
-    try { playerResponse = JSON.parse(prMatch[1]); } catch (e) { /* ignore */ }
-  }
-  
-  if (!playerResponse) {
-    // Fallback: innertube player API
-    const resp = await fetch('https://www.youtube.com/youtubei/v1/player', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        context: { client: INNERTUBE_CLIENT },
-        videoId,
-      }),
-    });
-    playerResponse = await resp.json();
-  }
-  
-  const tracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-  if (!tracks || tracks.length === 0) {
-    throw new Error('No captions available for this video. Please ensure the video has captions/subtitles enabled.');
-  }
-  
-  console.log(`[youtube-transcript] Found ${tracks.length} caption tracks`);
-  
-  // Prefer English
-  const enTrack = tracks.find((t: any) => t.languageCode === 'en' || t.languageCode?.startsWith('en'));
-  let captionUrl = (enTrack || tracks[0]).baseUrl;
-  captionUrl = captionUrl.replace(/\\u0026/g, '&').replace(/&amp;/g, '&');
-  
-  // Try fetching with cookies from the page response
-  const cookieHeader = setCookies.split(',').map(c => c.split(';')[0].trim()).filter(Boolean).join('; ');
-  
-  // Try JSON3 format with cookies
-  const json3Url = captionUrl + '&fmt=json3';
-  console.log(`[youtube-transcript] Fetching JSON3 with cookies...`);
-  const json3Resp = await fetch(json3Url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      ...(cookieHeader ? { 'Cookie': cookieHeader } : {}),
-    },
-  });
-  const json3Text = await json3Resp.text();
-  console.log(`[youtube-transcript] JSON3 response: ${json3Text.length} bytes, status: ${json3Resp.status}`);
-  
-  if (json3Text.length > 10) {
-    try {
-      const data = JSON.parse(json3Text);
-      const events = data.events || [];
-      const segments = events
-        .filter((e: any) => e.segs && e.tStartMs !== undefined)
-        .map((e: any) => ({
-          offset: (e.tStartMs || 0) / 1000,
-          text: (e.segs || []).map((s: any) => s.utf8 || '').join('').replace(/\n/g, ' ').trim(),
-        }))
-        .filter((item: any) => item.text.length > 0);
-      
-      if (segments.length > 0) {
-        console.log(`[youtube-transcript] Parsed ${segments.length} segments from JSON3`);
-        return {
-          text: segments.map((s: any) => s.text).join(' '),
-          timestamps: segments.map((s: any) => ({ time: formatTime(s.offset), text: s.text })),
-        };
-      }
-    } catch (e) {
-      console.warn('[youtube-transcript] JSON3 parse error:', e);
-    }
-  }
-  
-  // Try XML format with cookies
-  console.log(`[youtube-transcript] Fetching XML with cookies...`);
-  const xmlResp = await fetch(captionUrl, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      ...(cookieHeader ? { 'Cookie': cookieHeader } : {}),
-    },
-  });
-  const xmlText = await xmlResp.text();
-  console.log(`[youtube-transcript] XML response: ${xmlText.length} bytes, status: ${xmlResp.status}`);
-  
-  if (xmlText.length > 10) {
-    const textMatches = [...xmlText.matchAll(/<text start="([^"]+)"[^>]*>([\s\S]*?)<\/text>/g)];
-    if (textMatches.length > 0) {
-      const transcriptData = textMatches.map(match => ({
-        offset: parseFloat(match[1]),
-        text: decodeHTMLEntities(match[2].replace(/<[^>]+>/g, '')),
-      })).filter(item => item.text.length > 0);
-      
-      return {
-        text: transcriptData.map(item => item.text).join(' '),
-        timestamps: transcriptData.map(item => ({ time: formatTime(item.offset), text: item.text })),
-      };
-    }
-  }
-
-  // Method 4: Extract transcript from ytInitialData engagement panels
-  const initialDataMatch = html.match(/ytInitialData\s*=\s*(\{.+?\})\s*;\s*(?:window|<\/script)/s);
-  if (initialDataMatch) {
-    try {
-      const initialData = JSON.parse(initialDataMatch[1]);
-      const panels = initialData?.engagementPanels || [];
-      for (const panel of panels) {
-        const content = panel?.engagementPanelSectionListRenderer?.content?.continuationItemRenderer;
-        if (content) {
-          const token = content?.continuationEndpoint?.getTranscriptEndpoint?.params;
-          if (token) {
-            console.log(`[youtube-transcript] Found transcript continuation token, fetching...`);
-            const transcriptResp = await fetch('https://www.youtube.com/youtubei/v1/get_transcript', {
-              method: 'POST',
-              headers: { 
-                'Content-Type': 'application/json',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                ...(cookieHeader ? { 'Cookie': cookieHeader } : {}),
-              },
-              body: JSON.stringify({
-                context: { client: INNERTUBE_CLIENT },
-                params: token,
-              }),
-            });
-            const transcriptData = await transcriptResp.json();
-            console.log(`[youtube-transcript] get_transcript keys: ${JSON.stringify(Object.keys(transcriptData))}`);
-            
-            // Try multiple response structure paths
-            let cueGroups: any[] | null = null;
-            
-            // Path 1: actions -> updateEngagementPanelAction
-            const body1 = transcriptData?.actions?.[0]?.updateEngagementPanelAction?.content
-              ?.transcriptRenderer?.body?.transcriptBodyRenderer;
-            if (body1?.cueGroups) cueGroups = body1.cueGroups;
-            
-            // Path 2: actions -> appendContinuationItemsAction
-            if (!cueGroups) {
-              const body2 = transcriptData?.actions?.[0]?.appendContinuationItemsAction?.continuationItems;
-              if (body2) {
-                console.log(`[youtube-transcript] Found appendContinuationItemsAction`);
-                for (const item of body2) {
-                  const renderer = item?.transcriptRenderer?.body?.transcriptBodyRenderer;
-                  if (renderer?.cueGroups) { cueGroups = renderer.cueGroups; break; }
-                }
-              }
-            }
-            
-            // Path 3: Direct transcript search renderer
-            if (!cueGroups) {
-              const body3 = transcriptData?.actions?.[0]?.updateEngagementPanelAction?.content
-                ?.transcriptRenderer?.content?.transcriptSearchPanelRenderer?.body?.transcriptSegmentListRenderer?.initialSegments;
-              if (body3) {
-                console.log(`[youtube-transcript] Found search panel segments: ${body3.length}`);
-                const segments = body3.map((s: any) => {
-                  const seg = s.transcriptSegmentRenderer;
-                  if (!seg) return null;
-                  return {
-                    offset: parseInt(seg.startMs || '0') / 1000,
-                    text: seg.snippet?.runs?.map((r: any) => r.text).join('') || seg.snippet?.simpleText || '',
-                  };
-                }).filter((s: any) => s && s.text.length > 0);
-                
-                if (segments.length > 0) {
-                  console.log(`[youtube-transcript] Parsed ${segments.length} segments from search panel`);
-                  return {
-                    text: segments.map((s: any) => s.text).join(' '),
-                    timestamps: segments.map((s: any) => ({ time: formatTime(s.offset), text: s.text })),
-                  };
-                }
-              }
-            }
-            
-            if (!cueGroups) {
-              // Log the full structure for debugging
-              console.log(`[youtube-transcript] get_transcript response sample: ${JSON.stringify(transcriptData).substring(0, 500)}`);
-            }
-            
-            if (cueGroups) {
-              const segments = cueGroups.map((group: any) => {
-                const cue = group.transcriptCueGroupRenderer?.cues?.[0]?.transcriptCueRenderer;
-                if (!cue) return null;
-                return {
-                  offset: parseInt(cue.startOffsetMs || '0') / 1000,
-                  text: cue.cue?.simpleText || cue.cue?.runs?.map((r: any) => r.text).join('') || '',
-                };
-              }).filter((s: any) => s && s.text.length > 0);
-              
-              if (segments.length > 0) {
-                console.log(`[youtube-transcript] Parsed ${segments.length} segments from get_transcript`);
-                return {
-                  text: segments.map((s: any) => s.text).join(' '),
-                  timestamps: segments.map((s: any) => ({ time: formatTime(s.offset), text: s.text })),
-                };
-              }
-            }
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('[youtube-transcript] ytInitialData parse error:', e);
-    }
-  }
-  
-  throw new Error('Could not retrieve captions for this video. YouTube may be blocking server-side requests. Try a different video or check if captions are available.');
 }
 
 serve(async (req) => {
@@ -323,14 +82,28 @@ serve(async (req) => {
       }
     }
 
-    const { text, timestamps } = await getTranscript(videoId);
-    const elapsed = Date.now() - startTime;
-    console.log(`[youtube-transcript] Success in ${elapsed}ms, ${text.length} chars`);
+    // Use youtube-transcript package
+    const transcriptItems = await YoutubeTranscript.fetchTranscript(videoId, { lang: 'en' });
 
-    return jsonResponse({ success: true, text, timestamps, videoId });
+    if (!transcriptItems || transcriptItems.length === 0) {
+      return errorResponse('No captions available for this video. Please ensure the video has captions/subtitles enabled.', 422);
+    }
+
+    const fullText = transcriptItems.map((item: any) => item.text).join(' ');
+    const timestamps = transcriptItems.map((item: any) => ({
+      time: formatTime((item.offset || 0) / 1000),
+      text: item.text,
+    }));
+
+    const elapsed = Date.now() - startTime;
+    console.log(`[youtube-transcript] Success in ${elapsed}ms, ${fullText.length} chars, ${transcriptItems.length} segments`);
+
+    return jsonResponse({ success: true, text: fullText, timestamps, videoId });
   } catch (error) {
     const elapsed = Date.now() - startTime;
     console.error(`[youtube-transcript] Failed after ${elapsed}ms:`, error);
-    return errorResponse(error instanceof Error ? error.message : 'Unknown error');
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    const status = msg.includes('captions') || msg.includes('subtitle') ? 422 : 500;
+    return errorResponse(msg, status);
   }
 });
