@@ -251,7 +251,7 @@ async function getTranscript(videoId: string): Promise<{ text: string; timestamp
               console.log(`[youtube-transcript] get_transcript response sample: ${JSON.stringify(transcriptData).substring(0, 500)}`);
             }
             
-            if (body?.cueGroups) {
+            if (cueGroups) {
               const segments = body.cueGroups.map((group: any) => {
                 const cue = group.transcriptCueGroupRenderer?.cues?.[0]?.transcriptCueRenderer;
                 if (!cue) return null;
