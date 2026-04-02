@@ -199,8 +199,57 @@ async function getTranscript(videoId: string): Promise<{ text: string; timestamp
               }),
             });
             const transcriptData = await transcriptResp.json();
-            const body = transcriptData?.actions?.[0]?.updateEngagementPanelAction?.content
+            console.log(`[youtube-transcript] get_transcript keys: ${JSON.stringify(Object.keys(transcriptData))}`);
+            
+            // Try multiple response structure paths
+            let cueGroups: any[] | null = null;
+            
+            // Path 1: actions -> updateEngagementPanelAction
+            const body1 = transcriptData?.actions?.[0]?.updateEngagementPanelAction?.content
               ?.transcriptRenderer?.body?.transcriptBodyRenderer;
+            if (body1?.cueGroups) cueGroups = body1.cueGroups;
+            
+            // Path 2: actions -> appendContinuationItemsAction
+            if (!cueGroups) {
+              const body2 = transcriptData?.actions?.[0]?.appendContinuationItemsAction?.continuationItems;
+              if (body2) {
+                console.log(`[youtube-transcript] Found appendContinuationItemsAction`);
+                for (const item of body2) {
+                  const renderer = item?.transcriptRenderer?.body?.transcriptBodyRenderer;
+                  if (renderer?.cueGroups) { cueGroups = renderer.cueGroups; break; }
+                }
+              }
+            }
+            
+            // Path 3: Direct transcript search renderer
+            if (!cueGroups) {
+              const body3 = transcriptData?.actions?.[0]?.updateEngagementPanelAction?.content
+                ?.transcriptRenderer?.content?.transcriptSearchPanelRenderer?.body?.transcriptSegmentListRenderer?.initialSegments;
+              if (body3) {
+                console.log(`[youtube-transcript] Found search panel segments: ${body3.length}`);
+                const segments = body3.map((s: any) => {
+                  const seg = s.transcriptSegmentRenderer;
+                  if (!seg) return null;
+                  return {
+                    offset: parseInt(seg.startMs || '0') / 1000,
+                    text: seg.snippet?.runs?.map((r: any) => r.text).join('') || seg.snippet?.simpleText || '',
+                  };
+                }).filter((s: any) => s && s.text.length > 0);
+                
+                if (segments.length > 0) {
+                  console.log(`[youtube-transcript] Parsed ${segments.length} segments from search panel`);
+                  return {
+                    text: segments.map((s: any) => s.text).join(' '),
+                    timestamps: segments.map((s: any) => ({ time: formatTime(s.offset), text: s.text })),
+                  };
+                }
+              }
+            }
+            
+            if (!cueGroups) {
+              // Log the full structure for debugging
+              console.log(`[youtube-transcript] get_transcript response sample: ${JSON.stringify(transcriptData).substring(0, 500)}`);
+            }
             
             if (body?.cueGroups) {
               const segments = body.cueGroups.map((group: any) => {
