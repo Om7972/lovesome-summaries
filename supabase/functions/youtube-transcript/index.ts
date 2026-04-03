@@ -40,51 +40,89 @@ function formatTime(seconds: number): string {
 
 function decodeHTMLEntities(text: string): string {
   return text
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&apos;/g, "'")
     .replace(/&#(\d+);/g, (_, num) => String.fromCharCode(parseInt(num)))
-    .replace(/\n/g, ' ')
-    .trim();
+    .replace(/\n/g, ' ').trim();
 }
 
 function parseXmlTranscript(xml: string): Array<{ time: string; text: string }> | null {
   const segments: Array<{ time: string; text: string }> = [];
-
-  // Try srv3 format: <p t="ms" d="ms">text</p>
-  const srv3Regex = /<p\s+t="(\d+)"(?:\s+d="(\d+)")?[^>]*>(.*?)<\/p>/gs;
+  // srv3: <p t="ms">
   let match;
-  while ((match = srv3Regex.exec(xml)) !== null) {
-    const rawText = match[3].replace(/<[^>]+>/g, '').trim();
-    if (rawText) {
-      segments.push({
-        time: formatTime(parseInt(match[1]) / 1000),
-        text: decodeHTMLEntities(rawText),
-      });
-    }
+  const srv3 = /<p\s+t="(\d+)"(?:\s+d="(\d+)")?[^>]*>(.*?)<\/p>/gs;
+  while ((match = srv3.exec(xml)) !== null) {
+    const t = match[3].replace(/<[^>]+>/g, '').trim();
+    if (t) segments.push({ time: formatTime(parseInt(match[1]) / 1000), text: decodeHTMLEntities(t) });
   }
-
   if (segments.length > 0) return segments;
-
-  // Try srv1 format: <text start="seconds" dur="seconds">text</text>
-  const srv1Regex = /<text\s+start="([\d.]+)"(?:\s+dur="([\d.]+)")?[^>]*>(.*?)<\/text>/gs;
-  while ((match = srv1Regex.exec(xml)) !== null) {
-    const rawText = match[3].replace(/<[^>]+>/g, '').trim();
-    if (rawText) {
-      segments.push({
-        time: formatTime(parseFloat(match[1])),
-        text: decodeHTMLEntities(rawText),
-      });
-    }
+  // srv1: <text start="sec">
+  const srv1 = /<text\s+start="([\d.]+)"(?:\s+dur="([\d.]+)")?[^>]*>(.*?)<\/text>/gs;
+  while ((match = srv1.exec(xml)) !== null) {
+    const t = match[3].replace(/<[^>]+>/g, '').trim();
+    if (t) segments.push({ time: formatTime(parseFloat(match[1])), text: decodeHTMLEntities(t) });
   }
-
   return segments.length > 0 ? segments : null;
 }
 
-// Method 1: InnerTube API - try ALL languages
+// Get available caption track URLs from YouTube's watch page
+async function getCaptionTracksFromPage(videoId: string): Promise<Array<{ lang: string; baseUrl: string }>> {
+  try {
+    const res = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept': 'text/html,application/xhtml+xml',
+      }
+    });
+    if (!res.ok) { await res.text(); return []; }
+    const html = await res.text();
+
+    // Extract captionTracks from ytInitialPlayerResponse
+    const match = html.match(/"captionTracks":\s*(\[.*?\])/);
+    if (!match) {
+      console.log('[youtube-transcript] No captionTracks found in page HTML');
+      return [];
+    }
+
+    const tracks = JSON.parse(match[1]);
+    console.log(`[youtube-transcript] Page extraction found ${tracks.length} tracks:`,
+      tracks.map((t: any) => t.languageCode));
+    
+    return tracks.map((t: any) => ({ lang: t.languageCode, baseUrl: t.baseUrl }));
+  } catch (e) {
+    console.error('[youtube-transcript] Page extraction failed:', e);
+    return [];
+  }
+}
+
+// Method 1: Extract caption URLs from watch page HTML and download
+async function fetchFromWatchPage(videoId: string): Promise<{ text: string; timestamps: Array<{ time: string; text: string }> } | null> {
+  console.log('[youtube-transcript] Trying watch page extraction...');
+  const tracks = await getCaptionTracksFromPage(videoId);
+  
+  // Prefer English
+  const englishTrack = tracks.find(t => t.lang === 'en' || t.lang.startsWith('en'));
+  const orderedTracks = englishTrack ? [englishTrack, ...tracks.filter(t => t !== englishTrack)] : tracks;
+
+  for (const track of orderedTracks) {
+    try {
+      const res = await fetch(track.baseUrl);
+      if (!res.ok) { await res.text(); continue; }
+      const xml = await res.text();
+      const segments = parseXmlTranscript(xml);
+      if (segments && segments.length > 0) {
+        console.log(`[youtube-transcript] Watch page download success: ${segments.length} segments (lang=${track.lang})`);
+        return { text: segments.map(s => s.text).join(' '), timestamps: segments };
+      }
+    } catch (e) {
+      continue;
+    }
+  }
+  return null;
+}
+
+// Method 2: InnerTube API
 async function fetchWithInnerTube(videoId: string): Promise<{ text: string; timestamps: Array<{ time: string; text: string }> } | null> {
   console.log('[youtube-transcript] Trying InnerTube API...');
   try {
@@ -92,158 +130,85 @@ async function fetchWithInnerTube(videoId: string): Promise<{ text: string; time
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        context: {
-          client: { clientName: 'WEB', clientVersion: '2.20240101.00.00', hl: 'en' },
-        },
+        context: { client: { clientName: 'WEB', clientVersion: '2.20240101.00.00', hl: 'en' } },
         videoId,
       }),
     });
-
     if (!playerRes.ok) { await playerRes.text(); return null; }
+    const data = await playerRes.json();
+    const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    if (!tracks?.length) { console.log('[youtube-transcript] No tracks from InnerTube'); return null; }
 
-    const playerData = await playerRes.json();
-    const captionTracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    const en = tracks.find((t: any) => t.languageCode === 'en' || t.languageCode?.startsWith('en'));
+    const track = en || tracks[0];
+    if (!track.baseUrl) return null;
 
-    if (!captionTracks || captionTracks.length === 0) {
-      console.log('[youtube-transcript] No caption tracks in InnerTube response');
-      return null;
-    }
-
-    console.log(`[youtube-transcript] InnerTube found ${captionTracks.length} tracks:`,
-      captionTracks.map((t: any) => `${t.languageCode} (${t.kind || 'manual'})`));
-
-    // Prefer English, then any language
-    const englishTrack = captionTracks.find((t: any) =>
-      t.languageCode === 'en' || t.languageCode?.startsWith('en')
-    );
-    const track = englishTrack || captionTracks[0];
-    const trackUrl = track.baseUrl;
-    if (!trackUrl) return null;
-
-    console.log(`[youtube-transcript] Downloading InnerTube track: ${track.languageCode}`);
-    const trackRes = await fetch(trackUrl);
-    if (!trackRes.ok) { await trackRes.text(); return null; }
-
-    const xml = await trackRes.text();
+    console.log(`[youtube-transcript] InnerTube downloading: ${track.languageCode}`);
+    const res = await fetch(track.baseUrl);
+    if (!res.ok) { await res.text(); return null; }
+    const xml = await res.text();
     const segments = parseXmlTranscript(xml);
-    if (segments && segments.length > 0) {
+    if (segments?.length) {
       console.log(`[youtube-transcript] InnerTube success: ${segments.length} segments`);
       return { text: segments.map(s => s.text).join(' '), timestamps: segments };
     }
-  } catch (e) {
-    console.error('[youtube-transcript] InnerTube failed:', e);
-  }
+  } catch (e) { console.error('[youtube-transcript] InnerTube failed:', e); }
   return null;
 }
 
-// Method 2: Timedtext API - try multiple languages and formats
-async function fetchWithTimedText(videoId: string): Promise<{ text: string; timestamps: Array<{ time: string; text: string }> } | null> {
-  console.log('[youtube-transcript] Trying timedtext API...');
+// Method 3: Timedtext API with language discovery via YouTube Data API
+async function fetchWithTimedTextAndAPI(videoId: string): Promise<{ text: string; timestamps: Array<{ time: string; text: string }> } | null> {
+  console.log('[youtube-transcript] Trying timedtext with API discovery...');
 
-  // Try various language + kind + format combos
-  const attempts = [
-    { lang: 'en', kind: '', fmt: 'srv3' },
-    { lang: 'en', kind: '', fmt: 'srv1' },
-    { lang: 'en', kind: 'asr', fmt: 'srv1' },
-    { lang: 'en-US', kind: '', fmt: 'srv1' },
-    { lang: '', kind: '', fmt: 'srv3' },
-    { lang: '', kind: '', fmt: 'srv1' },
-    { lang: 'es', kind: 'asr', fmt: 'srv1' },
-    { lang: 'hi', kind: 'asr', fmt: 'srv1' },
-    { lang: 'pt', kind: 'asr', fmt: 'srv1' },
-    { lang: 'fr', kind: 'asr', fmt: 'srv1' },
-    { lang: 'de', kind: 'asr', fmt: 'srv1' },
-    { lang: 'ja', kind: 'asr', fmt: 'srv1' },
-    { lang: 'ko', kind: 'asr', fmt: 'srv1' },
-    { lang: 'ru', kind: 'asr', fmt: 'srv1' },
-    { lang: 'ar', kind: 'asr', fmt: 'srv1' },
-    { lang: 'zh', kind: 'asr', fmt: 'srv1' },
-  ];
+  const apiKey = Deno.env.get('YOUTUBE_API_KEY');
+  const languages = ['en', 'en-US'];
 
-  for (const { lang, kind, fmt } of attempts) {
+  // Use YouTube Data API to discover available languages
+  if (apiKey) {
     try {
-      let url = `https://www.youtube.com/api/timedtext?v=${videoId}&fmt=${fmt}`;
-      if (lang) url += `&lang=${lang}`;
-      if (kind) url += `&kind=${kind}`;
-
-      const res = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept-Language': 'en-US,en;q=0.9',
+      const url = `https://www.googleapis.com/youtube/v3/captions?part=snippet&videoId=${videoId}&key=${apiKey}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        const items = data.items || [];
+        console.log(`[youtube-transcript] API found ${items.length} tracks:`,
+          items.map((c: any) => `${c.snippet.language} (${c.snippet.trackKind})`));
+        
+        for (const item of items) {
+          const lang = item.snippet.language;
+          if (!languages.includes(lang)) languages.push(lang);
         }
-      });
-
-      if (!res.ok) { await res.text(); continue; }
-
-      const xml = await res.text();
-      if (!xml || xml.length < 50) continue;
-
-      const segments = parseXmlTranscript(xml);
-      if (segments && segments.length > 0) {
-        console.log(`[youtube-transcript] timedtext success: ${segments.length} segments (lang=${lang}, kind=${kind}, fmt=${fmt})`);
-        return { text: segments.map(s => s.text).join(' '), timestamps: segments };
-      }
-    } catch (e) {
-      // continue to next attempt
-    }
+      } else { await res.text(); }
+    } catch (e) { console.warn('[youtube-transcript] API discovery failed:', e); }
   }
-  return null;
-}
 
-// Method 3: YouTube Data API v3 - discover available languages, then download via timedtext
-async function fetchWithYouTubeAPI(videoId: string, apiKey: string): Promise<{ text: string; timestamps: Array<{ time: string; text: string }> } | null> {
-  console.log('[youtube-transcript] Trying YouTube Data API v3...');
-  try {
-    const captionsUrl = `https://www.googleapis.com/youtube/v3/captions?part=snippet&videoId=${videoId}&key=${apiKey}`;
-    const captionsRes = await fetch(captionsUrl);
+  // Add common languages as fallback
+  for (const l of ['es', 'hi', 'pt', 'fr', 'de', 'ja', 'ko', 'ru', 'ar', 'zh', '']) {
+    if (!languages.includes(l)) languages.push(l);
+  }
 
-    if (!captionsRes.ok) {
-      const errText = await captionsRes.text();
-      console.error(`[youtube-transcript] Captions list API error: ${captionsRes.status} ${errText}`);
-      return null;
-    }
-
-    const captionsData = await captionsRes.json();
-    const captions = captionsData.items || [];
-
-    if (captions.length === 0) {
-      console.log('[youtube-transcript] No captions found via API');
-      return null;
-    }
-
-    console.log(`[youtube-transcript] Found ${captions.length} caption tracks:`,
-      captions.map((c: any) => `${c.snippet.language} (${c.snippet.trackKind})`));
-
-    // Try each discovered language via timedtext
-    for (const caption of captions) {
-      const lang = caption.snippet.language;
-      const kind = caption.snippet.trackKind === 'ASR' ? 'asr' : '';
-      
+  for (const lang of languages) {
+    for (const kind of ['', 'asr']) {
       for (const fmt of ['srv1', 'srv3']) {
         try {
-          let url = `https://www.youtube.com/api/timedtext?v=${videoId}&lang=${lang}&fmt=${fmt}`;
+          let url = `https://www.youtube.com/api/timedtext?v=${videoId}&fmt=${fmt}`;
+          if (lang) url += `&lang=${lang}`;
           if (kind) url += `&kind=${kind}`;
-
+          
           const res = await fetch(url, {
             headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
           });
           if (!res.ok) { await res.text(); continue; }
-
           const xml = await res.text();
           if (!xml || xml.length < 50) continue;
-
           const segments = parseXmlTranscript(xml);
-          if (segments && segments.length > 0) {
-            console.log(`[youtube-transcript] API-guided download success: ${segments.length} segments (lang=${lang})`);
+          if (segments?.length) {
+            console.log(`[youtube-transcript] timedtext success: ${segments.length} segments (lang=${lang}, kind=${kind})`);
             return { text: segments.map(s => s.text).join(' '), timestamps: segments };
           }
-        } catch (e) {
-          // continue
-        }
+        } catch (e) { /* continue */ }
       }
     }
-  } catch (e) {
-    console.error('[youtube-transcript] YouTube API failed:', e);
   }
   return null;
 }
@@ -293,21 +258,16 @@ serve(async (req) => {
 
     let result: { text: string; timestamps: Array<{ time: string; text: string }> } | null = null;
 
-    // Method 1: InnerTube (most reliable, handles all languages)
-    result = await fetchWithInnerTube(videoId);
+    // Method 1: Watch page HTML extraction (gets signed URLs directly)
+    result = await fetchFromWatchPage(videoId);
 
-    // Method 2: Timedtext API (tries many languages)
-    if (!result) {
-      result = await fetchWithTimedText(videoId);
-    }
+    // Method 2: InnerTube API
+    if (!result) result = await fetchWithInnerTube(videoId);
 
-    // Method 3: YouTube Data API v3 (discovers exact languages, then downloads)
-    const youtubeApiKey = Deno.env.get('YOUTUBE_API_KEY');
-    if (!result && youtubeApiKey) {
-      result = await fetchWithYouTubeAPI(videoId, youtubeApiKey);
-    }
+    // Method 3: Timedtext + API discovery
+    if (!result) result = await fetchWithTimedTextAndAPI(videoId);
 
-    if (!result || !result.text) {
+    if (!result?.text) {
       return errorResponse('No captions available for this video. Please ensure the video has captions/subtitles enabled.', 422);
     }
 
@@ -319,6 +279,6 @@ serve(async (req) => {
     const elapsed = Date.now() - startTime;
     console.error(`[youtube-transcript] Failed after ${elapsed}ms:`, error);
     const msg = error instanceof Error ? error.message : 'Unknown error';
-    return errorResponse(msg, msg.includes('captions') || msg.includes('subtitle') ? 422 : 500);
+    return errorResponse(msg, msg.includes('captions') ? 422 : 500);
   }
 });
