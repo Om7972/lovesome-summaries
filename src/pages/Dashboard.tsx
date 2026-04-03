@@ -257,11 +257,35 @@ export default function Dashboard() {
 
   const handleYouTubeSubmit = async (url: string) => {
     if (!canSummarize) { toast({ title: "Daily limit reached", description: "Upgrade to Pro for unlimited summaries.", variant: "destructive" }); return; }
-    setIsProcessing(true); setFileName("YouTube Video"); setContentType("video"); setSmartNotes(null); setTranslatedSummary(""); setShowTranslated(false); setYoutubeUrl(url);
+    setIsProcessing(true); setFileName("YouTube Video"); setContentType("video"); setSmartNotes(null); setTranslatedSummary(""); setShowTranslated(false); setYoutubeUrl(url); setSummary(null); setVideoTranscript(""); setTimestamps([]);
     try {
       const { data: tData, error: tErr } = await supabase.functions.invoke("youtube-transcript", { body: { youtubeUrl: url, userId: user?.id } });
-      if (tErr) throw tErr;
-      if (!tData.success && tData.message) throw new Error(tData.message);
+
+      if (tErr) {
+        let message = "Failed to process YouTube video.";
+        const response = (tErr as { context?: Response }).context;
+        if (response && typeof response.text === "function") {
+          const raw = await response.text();
+          try {
+            const parsed = JSON.parse(raw);
+            message = parsed?.message || message;
+          } catch {
+            message = raw || message;
+          }
+        } else if ((tErr as { message?: string }).message) {
+          message = (tErr as { message?: string }).message || message;
+        }
+        throw new Error(message);
+      }
+
+      if (!tData?.success) {
+        toast({
+          title: tData?.code === "CAPTIONS_BLOCKED" ? "Transcript blocked" : "Transcript unavailable",
+          description: tData?.message || "Failed to process YouTube video.",
+          variant: "destructive",
+        });
+        return;
+      }
 
       if (tData.cached && tData.cachedSummary) {
         setVideoTranscript(tData.text || ""); setTimestamps([]);
@@ -284,10 +308,11 @@ export default function Dashboard() {
       await saveSummary("youtube", url, tData.text, sData.summary, tData.videoId, notes, language, sData.translatedSummary);
     } catch (error: any) {
       console.error("Error processing YouTube:", error);
+      setSummary(null); setVideoTranscript(""); setTimestamps([]);
       const msg = error?.message || "";
       toast({
         title: "Error",
-        description: msg.includes("captions") ? "This video doesn't have captions available." : msg || "Failed to process YouTube video.",
+        description: msg.includes("captions") || msg.includes("Transcript") ? msg : msg || "Failed to process YouTube video.",
         variant: "destructive",
       });
     } finally { setIsProcessing(false); }
