@@ -1,4 +1,3 @@
-import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
@@ -18,7 +17,7 @@ function errorResponse(message: string, status = 500) {
   return jsonResponse({ success: false, message }, status);
 }
 
-const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB (OpenAI Whisper limit)
+const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -40,49 +39,121 @@ serve(async (req) => {
 
     console.log(`[transcribe-video] Processing: ${audioFile.name}, size: ${(audioFile.size / 1024 / 1024).toFixed(1)}MB`);
 
-    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
-    if (!OPENAI_API_KEY) {
-      return errorResponse('OPENAI_API_KEY not configured', 503);
+    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+    if (!LOVABLE_API_KEY) {
+      return errorResponse('LOVABLE_API_KEY not configured', 503);
     }
 
-    const openAiFormData = new FormData();
-    openAiFormData.append('file', audioFile);
-    openAiFormData.append('model', 'whisper-1');
-    openAiFormData.append('response_format', 'verbose_json');
-    openAiFormData.append('timestamp_granularities[]', 'segment');
+    // Convert audio file to base64 for Gemini multimodal input
+    const arrayBuffer = await audioFile.arrayBuffer();
+    const uint8Array = new Uint8Array(arrayBuffer);
+    let binary = '';
+    for (let i = 0; i < uint8Array.length; i++) {
+      binary += String.fromCharCode(uint8Array[i]);
+    }
+    const base64Audio = btoa(binary);
 
-    const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    // Determine MIME type
+    const extension = audioFile.name.split('.').pop()?.toLowerCase() || '';
+    const mimeMap: Record<string, string> = {
+      'mp4': 'video/mp4', 'mov': 'video/quicktime', 'avi': 'video/x-msvideo',
+      'mkv': 'video/x-matroska', 'webm': 'video/webm', 'mp3': 'audio/mpeg',
+      'wav': 'audio/wav', 'ogg': 'audio/ogg', 'm4a': 'audio/mp4',
+    };
+    const mimeType = mimeMap[extension] || audioFile.type || 'video/mp4';
+
+    console.log(`[transcribe-video] Using Lovable AI (Gemini) for transcription, mime: ${mimeType}`);
+
+    // Use Lovable AI Gateway with Gemini for audio transcription
+    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}` },
-      body: openAiFormData,
+      headers: {
+        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash',
+        messages: [
+          {
+            role: 'system',
+            content: `You are a precise audio/video transcription assistant. Your task is to transcribe the spoken content from the provided media file.
+
+Output ONLY a valid JSON object with this exact structure:
+{
+  "text": "full transcription text here",
+  "segments": [
+    {"start": 0.0, "text": "first segment text"},
+    {"start": 15.5, "text": "next segment text"}
+  ]
+}
+
+Rules:
+- Transcribe ALL spoken words accurately
+- Break the transcription into segments of roughly 10-30 seconds each
+- The "start" field is the approximate start time in seconds
+- The "text" field in the root is the complete transcription joined together
+- Do NOT include any markdown, code blocks, or extra text - ONLY the JSON object
+- If the audio is in a non-English language, transcribe it in the original language`
+          },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image_url',
+                image_url: {
+                  url: `data:${mimeType};base64,${base64Audio}`
+                }
+              },
+              {
+                type: 'text',
+                text: 'Please transcribe all spoken content from this media file. Return ONLY the JSON object with the transcription.'
+              }
+            ]
+          }
+        ],
+      }),
     });
 
     if (!response.ok) {
-      const error = await response.text();
-      console.error('[transcribe-video] OpenAI API error:', error);
-      try {
-        const parsed = JSON.parse(error);
-        const code = parsed?.error?.code;
-        if (code === 'insufficient_quota') {
-          return errorResponse('OpenAI API quota exceeded. Please check your billing at platform.openai.com or update your API key.', 402);
-        }
-      } catch {}
+      const errorText = await response.text();
+      console.error('[transcribe-video] Lovable AI error:', response.status, errorText);
       if (response.status === 429) return errorResponse('Rate limit exceeded. Please try again in a moment.', 429);
-      return errorResponse(`Transcription API error: ${response.status}`);
+      if (response.status === 402) return errorResponse('AI credits exhausted. Please add funds in Settings → Cloud & AI balance.', 402);
+      return errorResponse(`Transcription service error: ${response.status}`);
     }
 
     const result = await response.json();
-    const timestamps = result.segments?.map((segment: { start: number; text: string }) => ({
-      time: formatTime(segment.start),
-      text: segment.text.trim()
-    })) || [];
+    const content = result.choices?.[0]?.message?.content || '';
+
+    // Parse the JSON response from Gemini
+    let transcriptionText = '';
+    let timestamps: Array<{ time: string; text: string }> = [];
+
+    try {
+      // Clean potential markdown code blocks
+      const cleaned = content.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+      const parsed = JSON.parse(cleaned);
+      transcriptionText = parsed.text || '';
+      timestamps = (parsed.segments || []).map((seg: { start: number; text: string }) => ({
+        time: formatTime(seg.start),
+        text: seg.text.trim(),
+      }));
+    } catch {
+      // If JSON parsing fails, use the raw text as transcription
+      console.warn('[transcribe-video] Could not parse structured response, using raw text');
+      transcriptionText = content.trim();
+    }
+
+    if (!transcriptionText) {
+      return errorResponse('Could not extract transcription from the media file.', 422);
+    }
 
     const elapsed = Date.now() - startTime;
-    console.log(`[transcribe-video] Success in ${elapsed}ms, ${result.text.length} chars`);
+    console.log(`[transcribe-video] Success in ${elapsed}ms, ${transcriptionText.length} chars`);
 
     return jsonResponse({
       success: true,
-      text: result.text,
+      text: transcriptionText,
       timestamps,
     });
   } catch (error) {

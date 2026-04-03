@@ -1,16 +1,19 @@
 import { useState, useMemo } from "react";
-import { Upload, Video, Link as LinkIcon, Loader2, Youtube } from "lucide-react";
+import { Upload, Video, Link as LinkIcon, Loader2, Youtube, AlertTriangle, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { motion, AnimatePresence } from "framer-motion";
+import { Badge } from "@/components/ui/badge";
 
 interface VideoUploadProps {
   onVideoSelect: (file: File) => void;
   onYouTubeSubmit: (url: string) => void;
   isProcessing: boolean;
+  youtubeBlocked?: { blocked: boolean; languages: string[]; videoId: string };
+  onClearBlocked?: () => void;
 }
 
 function extractYouTubeId(url: string): string | null {
@@ -18,14 +21,14 @@ function extractYouTubeId(url: string): string | null {
   return match ? match[1] : null;
 }
 
-export const VideoUpload = ({ onVideoSelect, onYouTubeSubmit, isProcessing }: VideoUploadProps) => {
+export const VideoUpload = ({ onVideoSelect, onYouTubeSubmit, isProcessing, youtubeBlocked, onClearBlocked }: VideoUploadProps) => {
   const [isDragging, setIsDragging] = useState(false);
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [progress, setProgress] = useState(0);
+  const [activeTab, setActiveTab] = useState("youtube");
 
   const videoId = useMemo(() => extractYouTubeId(youtubeUrl), [youtubeUrl]);
 
-  // Simulate progress
   useState(() => {
     if (isProcessing) {
       setProgress(0);
@@ -54,9 +57,14 @@ export const VideoUpload = ({ onVideoSelect, onYouTubeSubmit, isProcessing }: Vi
     if (youtubeUrl.trim()) onYouTubeSubmit(youtubeUrl.trim());
   };
 
+  const handleSwitchToUpload = () => {
+    onClearBlocked?.();
+    setActiveTab("upload");
+  };
+
   return (
     <Card className="p-8 bg-gradient-card backdrop-blur-sm border-border/50 shadow-lg">
-      <Tabs defaultValue="youtube" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="grid w-full grid-cols-2 mb-6">
           <TabsTrigger value="youtube" className="gap-2">
             <Youtube className="h-4 w-4" /> YouTube Link
@@ -72,7 +80,7 @@ export const VideoUpload = ({ onVideoSelect, onYouTubeSubmit, isProcessing }: Vi
               <Input
                 placeholder="https://www.youtube.com/watch?v=..."
                 value={youtubeUrl}
-                onChange={(e) => setYoutubeUrl(e.target.value)}
+                onChange={(e) => { setYoutubeUrl(e.target.value); onClearBlocked?.(); }}
                 disabled={isProcessing}
                 className="flex-1"
               />
@@ -89,9 +97,48 @@ export const VideoUpload = ({ onVideoSelect, onYouTubeSubmit, isProcessing }: Vi
               </Button>
             </div>
 
+            {/* YouTube Blocked Fallback */}
+            <AnimatePresence>
+              {youtubeBlocked?.blocked && !isProcessing && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="rounded-xl border border-destructive/30 bg-destructive/5 p-5 space-y-4"
+                >
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+                    <div className="space-y-2">
+                      <p className="font-semibold text-sm">YouTube blocked transcript extraction</p>
+                      <p className="text-xs text-muted-foreground">
+                        YouTube prevents server-side transcript downloads. You can download the video and upload it directly for transcription.
+                      </p>
+                    </div>
+                  </div>
+
+                  {youtubeBlocked.languages.length > 0 && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground">Available captions:</span>
+                      {youtubeBlocked.languages.map((lang) => (
+                        <Badge key={lang} variant="secondary" className="text-xs">
+                          {lang.toUpperCase()}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+
+                  <Button onClick={handleSwitchToUpload} variant="outline" size="sm" className="w-full gap-2">
+                    <Upload className="h-4 w-4" />
+                    Switch to direct video upload
+                  </Button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             {/* YouTube Preview */}
             <AnimatePresence>
-              {videoId && !isProcessing && (
+              {videoId && !isProcessing && !youtubeBlocked?.blocked && (
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
                   className="rounded-xl overflow-hidden border border-border/50"
                 >
@@ -135,7 +182,7 @@ export const VideoUpload = ({ onVideoSelect, onYouTubeSubmit, isProcessing }: Vi
               )}
             </AnimatePresence>
 
-            {!isProcessing && !videoId && (
+            {!isProcessing && !videoId && !youtubeBlocked?.blocked && (
               <p className="text-xs text-muted-foreground text-center">Paste a YouTube URL to see a preview</p>
             )}
           </div>
@@ -165,7 +212,7 @@ export const VideoUpload = ({ onVideoSelect, onYouTubeSubmit, isProcessing }: Vi
                 <p className="text-lg font-semibold mb-2">
                   {isDragging ? "Drop your video here" : "Drag & drop your video"}
                 </p>
-                <p className="text-sm text-muted-foreground">MP4, MOV, AVI, MKV, WebM</p>
+                <p className="text-sm text-muted-foreground">MP4, MOV, AVI, MKV, WebM (max 25MB)</p>
               </div>
               {isProcessing && (
                 <div className="w-full max-w-xs space-y-2">

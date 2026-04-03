@@ -63,6 +63,7 @@ export default function Dashboard() {
   const [summaryLength, setSummaryLength] = useState<"short" | "medium" | "detailed">("medium");
   const [language, setLanguage] = useState<SupportedLanguage>("english");
   const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [youtubeBlocked, setYoutubeBlocked] = useState<{ blocked: boolean; languages: string[]; videoId: string }>({ blocked: false, languages: [], videoId: "" });
 
   // Smart Notes
   const [smartNotes, setSmartNotes] = useState<SmartNotes | null>(null);
@@ -270,7 +271,7 @@ export default function Dashboard() {
 
   const handleYouTubeSubmit = async (url: string) => {
     if (!canSummarize) { toast({ title: "Daily limit reached", description: "Upgrade to Pro for unlimited summaries.", variant: "destructive" }); return; }
-    setIsProcessing(true); setFileName("YouTube Video"); setContentType("video"); setSmartNotes(null); setTranslatedSummary(""); setShowTranslated(false); setYoutubeUrl(url); setSummary(null); setVideoTranscript(""); setTimestamps([]);
+    setIsProcessing(true); setFileName("YouTube Video"); setContentType("video"); setSmartNotes(null); setTranslatedSummary(""); setShowTranslated(false); setYoutubeUrl(url); setSummary(null); setVideoTranscript(""); setTimestamps([]); setYoutubeBlocked({ blocked: false, languages: [], videoId: "" });
     try {
       const { data: tData, error: tErr } = await supabase.functions.invoke("youtube-transcript", { body: { youtubeUrl: url, userId: user?.id } });
 
@@ -292,11 +293,13 @@ export default function Dashboard() {
       }
 
       if (!tData?.success) {
+        const languages = tData?.availableLanguages || [];
         toast({
           title: tData?.code === "CAPTIONS_BLOCKED" ? "Transcript blocked" : "Transcript unavailable",
-          description: tData?.message || "Failed to process YouTube video.",
+          description: (tData?.message || "Failed to process YouTube video.") + (languages.length > 0 ? " You can upload the video directly instead." : ""),
           variant: "destructive",
         });
+        setYoutubeBlocked({ blocked: true, languages, videoId: tData?.videoId || "" });
         return;
       }
 
@@ -490,7 +493,13 @@ export default function Dashboard() {
                   <PDFUpload onFileSelect={handleFileSelect} isProcessing={isProcessing} />
                 </TabsContent>
                 <TabsContent value="video">
-                  <VideoUpload onVideoSelect={handleVideoSelect} onYouTubeSubmit={handleYouTubeSubmit} isProcessing={isProcessing} />
+                  <VideoUpload
+                    onVideoSelect={handleVideoSelect}
+                    onYouTubeSubmit={handleYouTubeSubmit}
+                    isProcessing={isProcessing}
+                    youtubeBlocked={youtubeBlocked}
+                    onClearBlocked={() => setYoutubeBlocked({ blocked: false, languages: [], videoId: "" })}
+                  />
                 </TabsContent>
               </Tabs>
             </div>
