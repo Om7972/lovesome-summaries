@@ -493,7 +493,13 @@ export default function Dashboard() {
                   <PDFUpload onFileSelect={handleFileSelect} isProcessing={isProcessing} />
                 </TabsContent>
                 <TabsContent value="video">
-                  <VideoUpload onVideoSelect={handleVideoSelect} onYouTubeSubmit={handleYouTubeSubmit} isProcessing={isProcessing} />
+                  <VideoUpload
+                    onVideoSelect={handleVideoSelect}
+                    onYouTubeSubmit={handleYouTubeSubmit}
+                    isProcessing={isProcessing}
+                    youtubeBlocked={youtubeBlocked}
+                    onClearBlocked={() => setYoutubeBlocked({ blocked: false, languages: [], videoId: "" })}
+                  />
                 </TabsContent>
               </Tabs>
             </div>
