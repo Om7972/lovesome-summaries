@@ -294,7 +294,6 @@ export default function Dashboard() {
 
       if (!tData?.success) {
         const languages = tData?.availableLanguages || [];
-        const langInfo = languages.length > 0 ? ` (available captions: ${languages.join(", ")})` : "";
         toast({
           title: tData?.code === "CAPTIONS_BLOCKED" ? "Transcript blocked" : "Transcript unavailable",
           description: (tData?.message || "Failed to process YouTube video.") + (languages.length > 0 ? " You can upload the video directly instead." : ""),
