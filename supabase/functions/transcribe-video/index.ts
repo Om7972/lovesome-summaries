@@ -60,7 +60,14 @@ serve(async (req) => {
     if (!response.ok) {
       const error = await response.text();
       console.error('[transcribe-video] OpenAI API error:', error);
-      if (response.status === 429) return errorResponse('Rate limit exceeded. Please try again.', 429);
+      try {
+        const parsed = JSON.parse(error);
+        const code = parsed?.error?.code;
+        if (code === 'insufficient_quota') {
+          return errorResponse('OpenAI API quota exceeded. Please check your billing at platform.openai.com or update your API key.', 402);
+        }
+      } catch {}
+      if (response.status === 429) return errorResponse('Rate limit exceeded. Please try again in a moment.', 429);
       return errorResponse(`Transcription API error: ${response.status}`);
     }
 

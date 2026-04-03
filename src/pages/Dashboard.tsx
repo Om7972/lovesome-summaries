@@ -249,9 +249,22 @@ export default function Dashboard() {
       toast({ title: "Success!", description: "Your video has been summarized." });
       const notes = await generateSmartNotes(tData.text, sData.summary);
       await saveSummary("video", file.name, tData.text, sData.summary, undefined, notes, language, sData.translatedSummary);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error processing video:", error);
-      toast({ title: "Error", description: "Failed to process video.", variant: "destructive" });
+      let description = "Failed to process video.";
+      try {
+        const response = (error as { context?: Response }).context;
+        if (response && typeof response.text === "function") {
+          const raw = await response.text();
+          const parsed = JSON.parse(raw);
+          if (parsed?.message) description = parsed.message;
+        }
+      } catch {}
+      if (!description || description === "Failed to process video.") {
+        const msg = error?.message || "";
+        if (msg) description = msg;
+      }
+      toast({ title: "Error", description, variant: "destructive" });
     } finally { setIsProcessing(false); }
   };
 
