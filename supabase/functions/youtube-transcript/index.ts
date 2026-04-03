@@ -127,17 +127,21 @@ async function fetchFromWatchPage(videoId: string): Promise<{ text: string; time
     const ordered = en ? [en, ...tracks.filter((t: any) => t !== en)] : tracks;
 
     for (const track of ordered) {
-      if (!track.baseUrl) continue;
+      if (!track.baseUrl) { console.log('[youtube-transcript] Track missing baseUrl:', track.languageCode); continue; }
       try {
+        console.log(`[youtube-transcript] Downloading track ${track.languageCode}: ${track.baseUrl.substring(0, 100)}...`);
         const r = await fetch(track.baseUrl);
-        if (!r.ok) { await r.text(); continue; }
+        console.log(`[youtube-transcript] Download status: ${r.status}, content-type: ${r.headers.get('content-type')}`);
+        if (!r.ok) { const t = await r.text(); console.log('[youtube-transcript] Download error body:', t.substring(0, 200)); continue; }
         const xml = await r.text();
+        console.log(`[youtube-transcript] Downloaded XML length: ${xml.length}, preview: ${xml.substring(0, 200)}`);
         const segs = parseXmlTranscript(xml);
+        console.log(`[youtube-transcript] Parsed segments: ${segs?.length || 0}`);
         if (segs?.length) {
           console.log(`[youtube-transcript] Success via watch page: ${segs.length} segments (${track.languageCode})`);
           return { text: segs.map(s => s.text).join(' '), timestamps: segs };
         }
-      } catch {}
+      } catch (e) { console.error(`[youtube-transcript] Download failed for ${track.languageCode}:`, e); }
     }
   } catch (e) {
     console.error('[youtube-transcript] Watch page failed:', e);
