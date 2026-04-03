@@ -63,6 +63,7 @@ export default function Dashboard() {
   const [summaryLength, setSummaryLength] = useState<"short" | "medium" | "detailed">("medium");
   const [language, setLanguage] = useState<SupportedLanguage>("english");
   const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [youtubeBlocked, setYoutubeBlocked] = useState<{ blocked: boolean; languages: string[]; videoId: string }>({ blocked: false, languages: [], videoId: "" });
 
   // Smart Notes
   const [smartNotes, setSmartNotes] = useState<SmartNotes | null>(null);
