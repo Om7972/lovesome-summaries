@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   FileText, Video, ArrowLeft, Youtube, Clock, BarChart3, Zap, TrendingUp,
   Sparkles, Search, Filter, Trash2, Eye, Loader2, Copy, Check, Download, Languages,
-  BookOpen, Calendar
+  BookOpen, Calendar, GitCompareArrows, Lightbulb, Presentation
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
