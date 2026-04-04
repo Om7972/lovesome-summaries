@@ -411,7 +411,28 @@ export default function Dashboard() {
               ))}
             </div>
 
-            {/* Spaced Repetition Widget */}
+            {/* AI Features Quick Links */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+              {[
+                { label: "Compare Videos", icon: GitCompareArrows, href: "/compare", desc: "Side-by-side AI analysis", color: "text-destructive" },
+                { label: "Idea Generator", icon: Lightbulb, href: "/ideas", desc: "Turn summaries into ideas", color: "text-primary" },
+                { label: "Slide Generator", icon: Presentation, href: "/slides", desc: "Create presentations", color: "text-success" },
+                { label: "Timeline", icon: Clock, href: "/timeline", desc: "Visual topic timeline", color: "text-primary" },
+              ].map((feat, i) => (
+                <motion.div key={feat.href} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 + i * 0.06 }} whileHover={{ scale: 1.03, boxShadow: "0 0 30px hsl(var(--primary) / 0.15)" }}>
+                  <Link to={feat.href}>
+                    <Card className="glass-card p-5 h-full hover:border-primary/30 transition-all cursor-pointer">
+                      <div className={`p-2.5 rounded-xl bg-muted/50 w-fit mb-3 ${feat.color}`}>
+                        <feat.icon className="h-5 w-5" />
+                      </div>
+                      <p className="font-semibold text-sm mb-1">{feat.label}</p>
+                      <p className="text-xs text-muted-foreground">{feat.desc}</p>
+                    </Card>
+                  </Link>
+                </motion.div>
+              ))}
+            </div>
+
             {totalCards > 0 && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
                 <Card className="glass-card-strong p-6">
