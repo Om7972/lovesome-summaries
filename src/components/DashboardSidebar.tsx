@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { FileText, LayoutDashboard, History, CreditCard, User, LogOut, Sparkles, BookOpen, Brain, Headphones, Share2, Settings, Flame } from "lucide-react";
+import { FileText, LayoutDashboard, History, CreditCard, User, LogOut, Sparkles, BookOpen, Brain, Headphones, Share2, Settings, Flame, GitCompareArrows, Lightbulb, Bookmark, Presentation, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthContext";
 import { ThemeToggle } from "@/components/ThemeToggle";
