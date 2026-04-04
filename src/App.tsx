@@ -59,6 +59,11 @@ const App = () => (
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/profile" element={<ProfilePage />} />
                 <Route path="/pricing" element={<PricingPage />} />
+                <Route path="/compare" element={<CompareVideosPage />} />
+                <Route path="/ideas" element={<IdeaGeneratorPage />} />
+                <Route path="/bookmarks" element={<BookmarksPage />} />
+                <Route path="/slides" element={<SlideGeneratorPage />} />
+                <Route path="/timeline" element={<TimelineViewerPage />} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>
