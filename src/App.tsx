@@ -18,6 +18,11 @@ import KnowledgeGraphPage from "./pages/KnowledgeGraphPage";
 import HighlightsPage from "./pages/HighlightsPage";
 import SettingsPage from "./pages/SettingsPage";
 import NotFound from "./pages/NotFound";
+import CompareVideosPage from "./pages/CompareVideosPage";
+import IdeaGeneratorPage from "./pages/IdeaGeneratorPage";
+import BookmarksPage from "./pages/BookmarksPage";
+import SlideGeneratorPage from "./pages/SlideGeneratorPage";
+import TimelineViewerPage from "./pages/TimelineViewerPage";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { PricingSection } from "@/components/landing/PricingSection";
 
@@ -54,6 +59,11 @@ const App = () => (
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/profile" element={<ProfilePage />} />
                 <Route path="/pricing" element={<PricingPage />} />
+                <Route path="/compare" element={<CompareVideosPage />} />
+                <Route path="/ideas" element={<IdeaGeneratorPage />} />
+                <Route path="/bookmarks" element={<BookmarksPage />} />
+                <Route path="/slides" element={<SlideGeneratorPage />} />
+                <Route path="/timeline" element={<TimelineViewerPage />} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>
