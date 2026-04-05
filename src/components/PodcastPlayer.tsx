@@ -95,7 +95,22 @@ export function PodcastPlayer({ summary }: PodcastPlayerProps) {
           </div>
         </div>
 
-        {!audioUrl ? (
+        {configError ? (
+          <div className="flex flex-col items-center gap-4 py-6 text-center">
+            <div className="p-3 rounded-full bg-destructive/10">
+              <AlertTriangle className="h-6 w-6 text-destructive" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-sm">Voice Service Not Available</h3>
+              <p className="text-xs text-muted-foreground mt-1 max-w-sm">
+                The ElevenLabs voice service is not configured or the API key is invalid. Please reconnect ElevenLabs in your project settings to enable podcast generation.
+              </p>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => setConfigError(false)}>
+              Try Again
+            </Button>
+          </div>
+        ) : !audioUrl ? (
           <div className="space-y-4">
             <div className="flex items-center gap-3">
               <span className="text-sm text-muted-foreground shrink-0">Voice:</span>
