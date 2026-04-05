@@ -14,6 +14,44 @@ export type Database = {
   }
   public: {
     Tables: {
+      content_outputs: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          summary_id: string
+          title: string
+          type: string
+          user_id: string
+        }
+        Insert: {
+          content?: string
+          created_at?: string
+          id?: string
+          summary_id: string
+          title?: string
+          type: string
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          summary_id?: string
+          title?: string
+          type?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "content_outputs_summary_id_fkey"
+            columns: ["summary_id"]
+            isOneToOne: false
+            referencedRelation: "summaries"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       flashcard_reviews: {
         Row: {
           answer: string
