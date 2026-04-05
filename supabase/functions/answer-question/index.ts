@@ -30,8 +30,8 @@ serve(async (req) => {
     if (!question || typeof question !== 'string' || question.trim().length === 0) {
       return errorResponse('Question is required', 400);
     }
-    if (!context || typeof context !== 'string') {
-      return errorResponse('Context is required', 400);
+    if (context !== undefined && typeof context !== 'string') {
+      return errorResponse('Context must be a string', 400);
     }
     if (question.length > 2000) {
       return errorResponse('Question is too long (max 2000 characters)', 400);
