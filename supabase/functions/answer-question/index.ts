@@ -59,7 +59,7 @@ serve(async (req) => {
           },
           {
             role: 'user',
-            content: `Context from document:\n\n${context.substring(0, 40000)}\n\nQuestion: ${question}`
+            content: context ? `Context from document:\n\n${context.substring(0, 40000)}\n\nQuestion: ${question}` : question
           }
         ],
       }),
