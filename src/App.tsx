@@ -66,6 +66,8 @@ const App = () => (
                 <Route path="/bookmarks" element={<BookmarksPage />} />
                 <Route path="/slides" element={<SlideGeneratorPage />} />
                 <Route path="/timeline" element={<TimelineViewerPage />} />
+                <Route path="/second-brain" element={<SecondBrainPage />} />
+                <Route path="/creator-mode" element={<CreatorModePage />} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>
