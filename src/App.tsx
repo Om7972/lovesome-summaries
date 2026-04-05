@@ -23,6 +23,8 @@ import IdeaGeneratorPage from "./pages/IdeaGeneratorPage";
 import BookmarksPage from "./pages/BookmarksPage";
 import SlideGeneratorPage from "./pages/SlideGeneratorPage";
 import TimelineViewerPage from "./pages/TimelineViewerPage";
+import SecondBrainPage from "./pages/SecondBrainPage";
+import CreatorModePage from "./pages/CreatorModePage";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { PricingSection } from "@/components/landing/PricingSection";
 
@@ -64,6 +66,8 @@ const App = () => (
                 <Route path="/bookmarks" element={<BookmarksPage />} />
                 <Route path="/slides" element={<SlideGeneratorPage />} />
                 <Route path="/timeline" element={<TimelineViewerPage />} />
+                <Route path="/second-brain" element={<SecondBrainPage />} />
+                <Route path="/creator-mode" element={<CreatorModePage />} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>
