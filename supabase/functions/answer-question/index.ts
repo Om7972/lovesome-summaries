@@ -33,8 +33,8 @@ serve(async (req) => {
     if (context !== undefined && typeof context !== 'string') {
       return errorResponse('Context must be a string', 400);
     }
-    if (question.length > 2000) {
-      return errorResponse('Question is too long (max 2000 characters)', 400);
+    if (question.length > 50000) {
+      return errorResponse('Question is too long (max 50000 characters)', 400);
     }
 
     console.log(`[answer-question] Processing: ${question.substring(0, 100)}`);
