@@ -9,6 +9,8 @@ import { useState } from "react";
 
 const navItems = [
   { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
+  { label: "Second Brain", icon: Database, href: "/second-brain" },
+  { label: "Creator Mode", icon: Wand2, href: "/creator-mode" },
   { label: "Study Mode", icon: Brain, href: "/study" },
   { label: "Highlights", icon: Flame, href: "/highlights" },
   { label: "Compare Videos", icon: GitCompareArrows, href: "/compare" },
