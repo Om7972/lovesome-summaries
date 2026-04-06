@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { FileText, LayoutDashboard, History, CreditCard, User, LogOut, Sparkles, BookOpen, Brain, Headphones, Share2, Settings, Flame, GitCompareArrows, Lightbulb, Bookmark, Presentation, Clock, Wand2, Database } from "lucide-react";
+import { FileText, LayoutDashboard, History, CreditCard, User, LogOut, Sparkles, BookOpen, Brain, Headphones, Share2, Settings, Flame, GitCompareArrows, Lightbulb, Bookmark, Presentation, Clock, Wand2, Database, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthContext";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -9,6 +9,7 @@ const navItems = [
   { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
   { label: "Second Brain", icon: Database, href: "/second-brain" },
   { label: "Creator Mode", icon: Wand2, href: "/creator-mode" },
+  { label: "Workspaces", icon: Users, href: "/workspaces" },
   { label: "Study Mode", icon: Brain, href: "/study" },
   { label: "Highlights", icon: Flame, href: "/highlights" },
   { label: "Compare Videos", icon: GitCompareArrows, href: "/compare" },
