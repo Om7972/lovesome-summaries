@@ -70,6 +70,8 @@ const App = () => (
                 <Route path="/timeline" element={<TimelineViewerPage />} />
                 <Route path="/second-brain" element={<SecondBrainPage />} />
                 <Route path="/creator-mode" element={<CreatorModePage />} />
+                <Route path="/workspaces" element={<WorkspacesPage />} />
+                <Route path="/workspace/:id" element={<WorkspaceDetailPage />} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>
