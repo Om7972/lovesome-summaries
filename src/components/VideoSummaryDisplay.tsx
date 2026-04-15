@@ -1,18 +1,16 @@
 import { useState } from "react";
-<<<<<<< HEAD
-import { FileText, MessageSquare, Sparkles, Send, Loader2, Youtube, Clock, Play } from "lucide-react";
-=======
-import { FileText, MessageSquare, Sparkles, Send, Loader2, Download } from "lucide-react";
->>>>>>> 1c8413d2115a076c529557bd6387fa5a773199ca
+import { Video, MessageSquare, Sparkles, Send, Loader2, List, AlignLeft, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-interface SummaryDisplayProps {
+interface VideoSummaryDisplayProps {
   summary: string;
-  fileName: string;
+  videoName: string;
+  timestamps?: Array<{ time: string; text: string }>;
   onAskQuestion: (question: string) => Promise<string>;
 }
 
@@ -21,15 +19,16 @@ interface ChatMessage {
   content: string;
 }
 
-interface TimestampedContent {
-  timestamp: string;
-  content: string;
-}
-
-export const SummaryDisplay = ({ summary, fileName, onAskQuestion }: SummaryDisplayProps) => {
+export const VideoSummaryDisplay = ({ 
+  summary, 
+  videoName, 
+  timestamps = [],
+  onAskQuestion 
+}: VideoSummaryDisplayProps) => {
   const [question, setQuestion] = useState("");
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [isAsking, setIsAsking] = useState(false);
+  const [summaryFormat, setSummaryFormat] = useState<"bullet" | "paragraph">("bullet");
 
   const handleAskQuestion = async () => {
     if (!question.trim() || isAsking) return;
@@ -59,131 +58,125 @@ export const SummaryDisplay = ({ summary, fileName, onAskQuestion }: SummaryDisp
     }
   };
 
-<<<<<<< HEAD
-  // Parse timestamped content for video summaries
-  const parseTimestampedContent = (text: string): TimestampedContent[] => {
-    const lines = text.split('\n');
-    const timestampedContent: TimestampedContent[] = [];
-    
-    lines.forEach(line => {
-      // Match timestamp patterns like [00:15] or [12:30:45]
-      const timestampRegex = /\[(\d{1,2}:\d{2}(?::\d{2})?)\]/;
-      const match = line.match(timestampRegex);
-      
-      if (match) {
-        const timestamp = match[1];
-        const content = line.replace(timestampRegex, '').trim();
-        timestampedContent.push({ timestamp, content });
-      }
-    });
-    
-    return timestampedContent;
+  const formatSummary = (text: string) => {
+    if (summaryFormat === "bullet") {
+      return text.split('\n').map((line, i) => {
+        const trimmed = line.trim();
+        if (!trimmed) return null;
+        return (
+          <li key={i} className="ml-4 mb-2">
+            {trimmed.replace(/^[•\-\*]\s*/, '')}
+          </li>
+        );
+      }).filter(Boolean);
+    }
+    return <p className="leading-relaxed whitespace-pre-wrap">{text}</p>;
   };
 
-  // Check if this is a video summary by looking for timestamp patterns
-  const isVideoSummary = summary.includes("[00:") || summary.includes("Timestamp") || summary.includes("timestamp");
-  const timestampedContent = isVideoSummary ? parseTimestampedContent(summary) : [];
-
-  // Render summary content with special handling for timestamps
-  const renderSummaryContent = () => {
-    if (isVideoSummary && timestampedContent.length > 0) {
-      return (
-        <div className="space-y-4">
-          {timestampedContent.map((item, index) => (
-            <div key={index} className="flex items-start gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors">
-              <Button 
-                size="sm" 
-                variant="outline" 
-                className="h-8 w-8 p-0 flex-shrink-0"
-                onClick={() => {
-                  // In a real implementation, this would seek to the timestamp in the video
-                  console.log(`Seek to ${item.timestamp}`);
-                }}
-              >
-                <Play className="h-3 w-3" />
-              </Button>
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <Clock className="h-4 w-4 text-primary" />
-                  <span className="font-mono text-sm bg-primary/10 px-2 py-0.5 rounded">
-                    {item.timestamp}
-                  </span>
-                </div>
-                <p className="text-foreground leading-relaxed">
-                  {item.content}
-                </p>
-              </div>
-            </div>
-          ))}
-          
-          {/* Render any remaining non-timestamped content */}
-          {summary.split('\n').map((line, index) => {
-            if (!line.match(/\[\d{1,2}:\d{2}/)) {
-              return (
-                <p key={index} className="text-foreground leading-relaxed whitespace-pre-wrap">
-                  {line}
-                </p>
-              );
-            }
-            return null;
-          })}
-        </div>
-      );
-    }
-    
-    return (
-      <p className="text-foreground leading-relaxed whitespace-pre-wrap">
-        {summary}
-      </p>
-    );
-=======
   const handleExport = () => {
-    const content = `Document: ${fileName}\n\nSummary:\n${summary}\n\n${chatHistory.length > 0 ? '\nQ&A History:\n' + chatHistory.map(msg => `${msg.role === 'user' ? 'Q' : 'A'}: ${msg.content}`).join('\n\n') : ''}`;
+    const timestampText = timestamps.length > 0 ? '\n\nTimestamps:\n' + timestamps.map(t => `[${t.time}] ${t.text}`).join('\n') : '';
+    const content = `Video: ${videoName}\n\nSummary:\n${summary}${timestampText}\n\n${chatHistory.length > 0 ? '\nQ&A History:\n' + chatHistory.map(msg => `${msg.role === 'user' ? 'Q' : 'A'}: ${msg.content}`).join('\n\n') : ''}`;
     const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${fileName.replace('.pdf', '')}_summary.txt`;
+    a.download = `${videoName.replace(/[^a-z0-9]/gi, '_')}_summary.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
->>>>>>> 1c8413d2115a076c529557bd6387fa5a773199ca
   };
 
   return (
     <div className="grid lg:grid-cols-2 gap-8">
       {/* Summary Section */}
       <Card className="p-8 bg-gradient-card backdrop-blur-sm border-border/50 shadow-lg">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="p-2 rounded-lg bg-primary/10">
-            {fileName.includes("Video") || fileName.includes("YouTube") ? (
-              <Youtube className="h-5 w-5 text-red-500" />
-            ) : (
-              <FileText className="h-5 w-5 text-primary" />
-            )}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-primary/10">
+              <Video className="h-5 w-5 text-primary" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h2 className="text-xl font-bold">Video Summary</h2>
+              <p className="text-sm text-muted-foreground truncate">{videoName}</p>
+            </div>
           </div>
-          <div className="flex-1 min-w-0">
-            <h2 className="text-xl font-bold">Content Summary</h2>
-            <p className="text-sm text-muted-foreground truncate">{fileName}</p>
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={handleExport}
+              variant="outline"
+              size="sm"
+              className="gap-2"
+            >
+              <Download className="h-4 w-4" />
+              Export
+            </Button>
+            <Sparkles className="h-5 w-5 text-accent" />
           </div>
+        </div>
+
+        <div className="flex gap-2 mb-4">
           <Button
-            onClick={handleExport}
-            variant="outline"
+            variant={summaryFormat === "bullet" ? "default" : "outline"}
             size="sm"
+            onClick={() => setSummaryFormat("bullet")}
             className="gap-2"
           >
-            <Download className="h-4 w-4" />
-            Export
+            <List className="h-4 w-4" />
+            Bullet
           </Button>
-          <Sparkles className="h-5 w-5 text-accent" />
+          <Button
+            variant={summaryFormat === "paragraph" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setSummaryFormat("paragraph")}
+            className="gap-2"
+          >
+            <AlignLeft className="h-4 w-4" />
+            Paragraph
+          </Button>
         </div>
-        
-        <ScrollArea className="h-[400px] pr-4">
-          <div className="prose prose-sm max-w-none">
-            {renderSummaryContent()}
-          </div>
-        </ScrollArea>
+
+        <Tabs defaultValue="summary" className="w-full">
+          <TabsList className="grid w-full grid-cols-2 mb-4">
+            <TabsTrigger value="summary">Summary</TabsTrigger>
+            <TabsTrigger value="timestamps">Timestamps</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="summary">
+            <ScrollArea className="h-[400px] pr-4">
+              <div className="prose prose-sm max-w-none text-foreground">
+                {summaryFormat === "bullet" ? (
+                  <ul className="list-disc space-y-1">
+                    {formatSummary(summary)}
+                  </ul>
+                ) : (
+                  formatSummary(summary)
+                )}
+              </div>
+            </ScrollArea>
+          </TabsContent>
+
+          <TabsContent value="timestamps">
+            <ScrollArea className="h-[400px] pr-4">
+              {timestamps.length > 0 ? (
+                <div className="space-y-3">
+                  {timestamps.map((item, idx) => (
+                    <div key={idx} className="flex gap-3 p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors">
+                      <span className="text-xs font-mono text-primary shrink-0 mt-0.5">
+                        {item.time}
+                      </span>
+                      <p className="text-sm leading-relaxed">{item.text}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-full text-center text-muted-foreground">
+                  <p className="text-sm">No timestamps available</p>
+                </div>
+              )}
+            </ScrollArea>
+          </TabsContent>
+        </Tabs>
       </Card>
 
       {/* Q&A Section */}
@@ -202,7 +195,7 @@ export const SummaryDisplay = ({ summary, fileName, onAskQuestion }: SummaryDisp
                 <MessageSquare className="h-8 w-8 text-muted-foreground" />
               </div>
               <p className="text-sm text-muted-foreground">
-                Ask me anything about this content
+                Ask me anything about this video
               </p>
             </div>
           ) : (
@@ -238,7 +231,7 @@ export const SummaryDisplay = ({ summary, fileName, onAskQuestion }: SummaryDisp
 
         <div className="flex gap-2">
           <Input
-            placeholder="Ask about the content..."
+            placeholder="Ask about the video..."
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             onKeyPress={handleKeyPress}

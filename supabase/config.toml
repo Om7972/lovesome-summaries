@@ -1,5 +1,6 @@
 project_id = "gtgkkjfwipgfdbyfmzyb"
 
+<<<<<<< HEAD
 [functions.transcribe-video]
 import_map = "./functions/transcribe-video/deno.json"
 
@@ -11,3 +12,19 @@ import_map = "./functions/answer-question/deno.json"
 
 [functions.summarize-pdf]
 import_map = "./functions/summarize-pdf/deno.json"
+=======
+[functions.summarize-pdf]
+verify_jwt = false
+
+[functions.answer-question]
+verify_jwt = false
+
+[functions.transcribe-video]
+verify_jwt = false
+
+[functions.summarize-video]
+verify_jwt = false
+
+[functions.youtube-transcript]
+verify_jwt = false
+>>>>>>> 1c8413d2115a076c529557bd6387fa5a773199ca

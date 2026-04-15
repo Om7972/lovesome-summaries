@@ -1,9 +1,15 @@
 import { useState } from "react";
+<<<<<<< HEAD
 import { Sparkles, FileText, MessageSquare, Youtube, Film } from "lucide-react";
+=======
+import { Sparkles, FileText, MessageSquare, Video } from "lucide-react";
+>>>>>>> 1c8413d2115a076c529557bd6387fa5a773199ca
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PDFUpload } from "@/components/PDFUpload";
 import { VideoUpload } from "@/components/VideoUpload";
 import { SummaryDisplay } from "@/components/SummaryDisplay";
+import { VideoSummaryDisplay } from "@/components/VideoSummaryDisplay";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import heroBg from "@/assets/hero-bg.jpg";
@@ -14,8 +20,12 @@ const Index = () => {
   const [summary, setSummary] = useState<string | null>(null);
   const [fileName, setFileName] = useState("");
   const [pdfText, setPdfText] = useState("");
+  const [videoTranscript, setVideoTranscript] = useState("");
+  const [timestamps, setTimestamps] = useState<Array<{ time: string; text: string }>>([]);
+  const [contentType, setContentType] = useState<"pdf" | "video">("pdf");
   const { toast } = useToast();
 
+<<<<<<< HEAD
   const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -28,6 +38,38 @@ const Index = () => {
       reader.onerror = reject;
       reader.readAsDataURL(file);
     });
+=======
+  const extractTextFromPDF = async (file: File): Promise<string> => {
+    try {
+      const pdfjsLib = await import('pdfjs-dist');
+      
+      // Set worker source using Vite's URL constructor for local worker
+      pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+        'pdfjs-dist/build/pdf.worker.mjs',
+        import.meta.url
+      ).toString();
+      
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      
+      let fullText = '';
+      
+      // Extract text from all pages
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items
+          .map((item: any) => item.str)
+          .join(' ');
+        fullText += pageText + '\n\n';
+      }
+      
+      return fullText.trim();
+    } catch (error) {
+      console.error('Error extracting PDF text:', error);
+      throw new Error('Failed to extract text from PDF. Please ensure the file is a valid PDF.');
+    }
+>>>>>>> 1c8413d2115a076c529557bd6387fa5a773199ca
   };
 
   const handleFileSelect = async (file: File) => {
@@ -215,10 +257,146 @@ const Index = () => {
     }
   };
 
+  const handleVideoSelect = async (file: File) => {
+    setIsProcessing(true);
+    setFileName(file.name);
+    setContentType("video");
+
+    try {
+      // Create form data for video transcription
+      const formData = new FormData();
+      formData.append('audio', file);
+
+      // Call transcription function
+      const { data: transcriptData, error: transcriptError } = await supabase.functions.invoke(
+        "transcribe-video",
+        {
+          body: formData,
+        }
+      );
+
+      if (transcriptError) throw transcriptError;
+
+      setVideoTranscript(transcriptData.text);
+      setTimestamps(transcriptData.timestamps || []);
+
+      // Call summarization function
+      const { data: summaryData, error: summaryError } = await supabase.functions.invoke(
+        "summarize-video",
+        {
+          body: {
+            transcript: transcriptData.text,
+            videoName: file.name,
+            timestamps: transcriptData.timestamps,
+          },
+        }
+      );
+
+      if (summaryError) throw summaryError;
+
+      setSummary(summaryData.summary);
+      toast({
+        title: "Success!",
+        description: "Your video has been summarized",
+      });
+    } catch (error: any) {
+      console.error("Error processing video:", error);
+      
+      // Check if it's an OpenAI quota error
+      const errorMessage = error?.message || '';
+      const isQuotaError = errorMessage.includes('429') || errorMessage.includes('quota');
+      
+      toast({
+        title: "Error",
+        description: isQuotaError 
+          ? "OpenAI API quota exceeded. Please add credits to your OpenAI account or contact support." 
+          : "Failed to process video. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleYouTubeSubmit = async (url: string) => {
+    setIsProcessing(true);
+    setFileName("YouTube Video");
+    setContentType("video");
+
+    try {
+      // Call YouTube transcript function
+      const { data: transcriptData, error: transcriptError } = await supabase.functions.invoke(
+        "youtube-transcript",
+        {
+          body: { youtubeUrl: url },
+        }
+      );
+
+      if (transcriptError) throw transcriptError;
+
+      setVideoTranscript(transcriptData.text);
+      setTimestamps(transcriptData.timestamps || []);
+
+      // Call summarization function
+      const { data: summaryData, error: summaryError } = await supabase.functions.invoke(
+        "summarize-video",
+        {
+          body: {
+            transcript: transcriptData.text,
+            videoName: "YouTube Video",
+            timestamps: transcriptData.timestamps,
+          },
+        }
+      );
+
+      if (summaryError) throw summaryError;
+
+      setSummary(summaryData.summary);
+      toast({
+        title: "Success!",
+        description: "YouTube video has been summarized",
+      });
+    } catch (error: any) {
+      console.error("Error processing YouTube video:", error);
+      
+      const errorMessage = error?.message || '';
+      const isQuotaError = errorMessage.includes('429') || errorMessage.includes('quota');
+      const isCaptionError = errorMessage.includes('captions') || errorMessage.includes('Transcript');
+      
+      toast({
+        title: "Error",
+        description: isQuotaError
+          ? "OpenAI API quota exceeded. Please add credits to your OpenAI account."
+          : isCaptionError
+          ? "This video doesn't have captions available. Try a different video or upload the video file directly."
+          : "Failed to process YouTube video. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleAskVideoQuestion = async (question: string): Promise<string> => {
+    try {
+      const { data, error } = await supabase.functions.invoke("answer-question", {
+        body: { question, context: videoTranscript },
+      });
+
+      if (error) throw error;
+      return data.answer;
+    } catch (error) {
+      console.error("Error answering question:", error);
+      throw error;
+    }
+  };
+
   const handleReset = () => {
     setSummary(null);
     setFileName("");
     setPdfText("");
+    setVideoTranscript("");
+    setTimestamps([]);
   };
 
   return (
@@ -256,14 +434,22 @@ const Index = () => {
               </div>
               
               <h2 className="text-5xl font-bold tracking-tight">
+<<<<<<< HEAD
                 Transform Documents & Videos into
+=======
+                Transform Content into
+>>>>>>> 1c8413d2115a076c529557bd6387fa5a773199ca
                 <span className="block bg-gradient-primary bg-clip-text text-transparent">
                   Actionable Insights
                 </span>
               </h2>
               
               <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
+<<<<<<< HEAD
                 Upload PDFs or YouTube videos and get instant AI-powered summaries, key insights, and interactive Q&A
+=======
+                Upload PDFs or videos and get instant AI-powered summaries, key insights, and interactive Q&A
+>>>>>>> 1c8413d2115a076c529557bd6387fa5a773199ca
               </p>
             </div>
 
@@ -297,19 +483,53 @@ const Index = () => {
                   backgroundImage: `url(${heroBg})`,
                 }}
               />
+<<<<<<< HEAD
               {activeTab === "pdf" ? (
                 <PDFUpload onFileSelect={handleFileSelect} isProcessing={isProcessing} />
               ) : (
                 <VideoUpload onVideoSubmit={handleVideoSubmit} isProcessing={isProcessing} />
               )}
+=======
+              
+              <Tabs defaultValue="pdf" className="w-full">
+                <TabsList className="grid w-full grid-cols-2 mb-6">
+                  <TabsTrigger value="pdf" className="gap-2">
+                    <FileText className="h-4 w-4" />
+                    PDF Document
+                  </TabsTrigger>
+                  <TabsTrigger value="video" className="gap-2">
+                    <Video className="h-4 w-4" />
+                    Video
+                  </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="pdf">
+                  <PDFUpload onFileSelect={handleFileSelect} isProcessing={isProcessing} />
+                </TabsContent>
+
+                <TabsContent value="video">
+                  <VideoUpload 
+                    onVideoSelect={handleVideoSelect}
+                    onYouTubeSubmit={handleYouTubeSubmit}
+                    isProcessing={isProcessing}
+                  />
+                </TabsContent>
+              </Tabs>
+>>>>>>> 1c8413d2115a076c529557bd6387fa5a773199ca
             </div>
 
             {/* Features */}
             <div className="grid md:grid-cols-3 gap-6 mt-12">
               {[
+<<<<<<< HEAD
                 { icon: Sparkles, title: "AI Summarization", desc: "Get concise summaries of documents and videos" },
                 { icon: MessageSquare, title: "Interactive Q&A", desc: "Ask questions about your content" },
                 { icon: Film, title: "Video Processing", desc: "Transcribe and summarize YouTube videos" },
+=======
+                { icon: Sparkles, title: "AI Summarization", desc: "Get concise summaries of lengthy content" },
+                { icon: MessageSquare, title: "Interactive Q&A", desc: "Ask questions about your content" },
+                { icon: Video, title: "Multi-Format Support", desc: "PDFs, videos, and YouTube links" },
+>>>>>>> 1c8413d2115a076c529557bd6387fa5a773199ca
               ].map((feature, i) => (
                 <div key={i} className="p-6 rounded-xl bg-card border border-border/50 shadow-sm hover:shadow-md transition-all">
                   <div className="p-2 rounded-lg bg-primary/10 w-fit mb-4">
@@ -323,11 +543,20 @@ const Index = () => {
           </div>
         ) : (
           <div className="max-w-7xl mx-auto">
-            <SummaryDisplay
-              summary={summary}
-              fileName={fileName}
-              onAskQuestion={handleAskQuestion}
-            />
+            {contentType === "pdf" ? (
+              <SummaryDisplay
+                summary={summary}
+                fileName={fileName}
+                onAskQuestion={handleAskQuestion}
+              />
+            ) : (
+              <VideoSummaryDisplay
+                summary={summary}
+                videoName={fileName}
+                timestamps={timestamps}
+                onAskQuestion={handleAskVideoQuestion}
+              />
+            )}
           </div>
         )}
       </main>

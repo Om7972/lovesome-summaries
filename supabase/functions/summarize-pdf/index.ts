@@ -28,6 +28,7 @@ serve(async (req) => {
 
     const { text, fileName, pdfBase64 } = requestData;
 
+<<<<<<< HEAD
     // Validate input
     if (!pdfBase64 && !text) {
       return new Response(
@@ -163,6 +164,40 @@ serve(async (req) => {
           }
         );
       }
+=======
+    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
+    if (!OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY not configured');
+    }
+
+    // Call OpenAI for summarization
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-5-mini-2025-08-07',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an expert document summarizer. Create detailed, well-structured summaries that capture all key points, main arguments, important details, and actionable insights from documents. Use clear sections, bullet points, and highlight critical information. Be comprehensive yet concise.'
+          },
+          {
+            role: 'user',
+            content: `Please provide a comprehensive summary of the following document:\n\n${text.substring(0, 100000)}`
+          }
+        ],
+        max_completion_tokens: 2000,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('AI API error:', response.status, errorText);
+      throw new Error(`AI API error: ${response.status}`);
+>>>>>>> 1c8413d2115a076c529557bd6387fa5a773199ca
     }
 
     if (!extractedText || extractedText.trim().length === 0) {
