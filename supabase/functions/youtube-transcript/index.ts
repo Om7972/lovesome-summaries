@@ -1,109 +1,55 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.79.0";
+import { YoutubeTranscript } from "npm:youtube-transcript@1.2.1";
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+type TranscriptSegment = {
+  time: string;
+  text: string;
+};
 
-  try {
-    const { youtubeUrl } = await req.json();
+type CaptionTrackInfo = {
+  language: string;
+  kind: string;
+  name: string | null;
+};
 
-    if (!youtubeUrl) {
-      throw new Error('YouTube URL is required');
-    }
+function jsonResponse(body: Record<string, unknown>, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
 
-    console.log('Fetching YouTube transcript for:', youtubeUrl);
+function errorResponse(message: string, status = 500) {
+  console.error(`[youtube-transcript] Error: ${message}`);
+  return jsonResponse({ success: false, message }, status);
+}
 
-    // Extract video ID from URL
-    const videoId = extractVideoId(youtubeUrl);
-    if (!videoId) {
-      throw new Error('Invalid YouTube URL');
-    }
-
-    // Fetch video page to extract captions
-    const videoPageResponse = await fetch(`https://www.youtube.com/watch?v=${videoId}`);
-    const videoPageHtml = await videoPageResponse.text();
-    
-    // Extract caption tracks from page
-    const captionTracksMatch = videoPageHtml.match(/"captionTracks":(\[.*?\])/);
-    if (!captionTracksMatch) {
-      throw new Error('No captions available for this video. Please ensure the video has captions enabled or try uploading the video file directly.');
-    }
-
-    const captionTracks = JSON.parse(captionTracksMatch[1]);
-    if (captionTracks.length === 0) {
-      throw new Error('No captions available for this video.');
-    }
-
-    // Get the first available caption track (usually auto-generated English)
-    const captionUrl = captionTracks[0].baseUrl;
-    
-    // Fetch the caption XML
-    const captionResponse = await fetch(captionUrl);
-    const captionXml = await captionResponse.text();
-    
-    // Parse XML to extract text and timestamps
-    const textMatches = [...captionXml.matchAll(/<text start="([^"]+)"[^>]*>([^<]+)<\/text>/g)];
-    
-    if (textMatches.length === 0) {
-      throw new Error('Failed to parse captions from video.');
-    }
-    
-    const transcriptData = textMatches.map(match => ({
-      offset: parseFloat(match[1]) * 1000,
-      text: decodeHTMLEntities(match[2])
-    }));
-    
-    // Format transcript
-    const fullText = transcriptData.map(item => item.text).join(' ');
-    const timestamps = transcriptData.map(item => ({
-      time: formatTime(item.offset / 1000),
-      text: item.text
-    }));
-
-    console.log('YouTube transcript fetched successfully');
-
-    return new Response(
-      JSON.stringify({
-        text: fullText,
-        timestamps: timestamps
-      }),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
-    );
-  } catch (error) {
-    console.error('Error in youtube-transcript function:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    
-    return new Response(
-      JSON.stringify({ 
-        error: errorMessage
-      }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
-    );
-  }
-});
+function softFailureResponse(
+  message: string,
+  code: string,
+  details: Record<string, unknown> = {},
+) {
+  console.warn(`[youtube-transcript] ${code}: ${message}`);
+  return jsonResponse({ success: false, code, message, ...details }, 200);
+}
 
 function extractVideoId(url: string): string | null {
+  const sanitized = url.trim().substring(0, 500);
   const patterns = [
-    /(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\n?#]+)/,
-    /youtube\.com\/embed\/([^&\n?#]+)/,
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/,
+    /youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/,
+    /youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/,
   ];
 
   for (const pattern of patterns) {
-    const match = url.match(pattern);
-    if (match && match[1]) {
-      return match[1];
-    }
+    const match = sanitized.match(pattern);
+    if (match?.[1]) return match[1];
   }
 
   return null;
@@ -112,15 +58,337 @@ function extractVideoId(url: string): string | null {
 function formatTime(seconds: number): string {
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
-  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
 
 function decodeHTMLEntities(text: string): string {
   return text
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, ' ');
+    .replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, num) => String.fromCharCode(parseInt(num, 10)))
+    .replace(/\n/g, " ")
+    .trim();
 }
+
+function buildTranscriptPayload(timestamps: TranscriptSegment[]) {
+  const cleaned = timestamps.filter((segment) => segment.text.trim().length > 0);
+  if (cleaned.length === 0) return null;
+
+  return {
+    text: cleaned.map((segment) => segment.text).join(" "),
+    timestamps: cleaned,
+  };
+}
+
+function parseXmlTranscript(xml: string): TranscriptSegment[] | null {
+  const segments: TranscriptSegment[] = [];
+  let match: RegExpExecArray | null;
+
+  const textRegex = /<text\s+start="([\d.]+)"[^>]*>([\s\S]*?)<\/text>/g;
+  while ((match = textRegex.exec(xml)) !== null) {
+    const text = match[2].replace(/<[^>]+>/g, "").trim();
+    if (text) {
+      segments.push({
+        time: formatTime(parseFloat(match[1])),
+        text: decodeHTMLEntities(text),
+      });
+    }
+  }
+
+  if (segments.length > 0) return segments;
+
+  const paragraphRegex = /<p\s+t="(\d+)"[^>]*>([\s\S]*?)<\/p>/g;
+  while ((match = paragraphRegex.exec(xml)) !== null) {
+    const text = match[2].replace(/<[^>]+>/g, "").trim();
+    if (text) {
+      segments.push({
+        time: formatTime(parseInt(match[1], 10) / 1000),
+        text: decodeHTMLEntities(text),
+      });
+    }
+  }
+
+  return segments.length > 0 ? segments : null;
+}
+
+async function fetchCaptionTrackMetadata(videoId: string): Promise<CaptionTrackInfo[]> {
+  const apiKey = Deno.env.get("YOUTUBE_API_KEY");
+  if (!apiKey) {
+    console.warn("[youtube-transcript] YOUTUBE_API_KEY is not configured");
+    return [];
+  }
+
+  try {
+    const response = await fetch(
+      `https://www.googleapis.com/youtube/v3/captions?part=snippet&videoId=${videoId}&key=${apiKey}`,
+    );
+
+    if (!response.ok) {
+      const body = await response.text();
+      console.warn(`[youtube-transcript] Caption metadata lookup failed (${response.status}): ${body.slice(0, 200)}`);
+      return [];
+    }
+
+    const data = await response.json();
+    const tracks = (data.items ?? []).map((item: any) => ({
+      language: item?.snippet?.language ?? "unknown",
+      kind: item?.snippet?.trackKind ?? "standard",
+      name: item?.snippet?.name?.simpleText ?? null,
+    }));
+
+    if (tracks.length > 0) {
+      console.log(
+        `[youtube-transcript] API found ${tracks.length} track(s): ${tracks.map((track) => `${track.language}(${track.kind})`).join(", ")}`,
+      );
+    }
+
+    return tracks;
+  } catch (error) {
+    console.warn("[youtube-transcript] Caption metadata lookup crashed:", error);
+    return [];
+  }
+}
+
+function buildLanguageConfigs(captionTracks: CaptionTrackInfo[]) {
+  const languages = Array.from(
+    new Set(
+      ["en", "en-US", ...captionTracks.map((track) => track.language)].filter(Boolean),
+    ),
+  );
+
+  return [...languages.map((lang) => ({ lang })), {}];
+}
+
+async function tryYoutubeTranscriptPackage(videoId: string, captionTracks: CaptionTrackInfo[]) {
+  console.log("[youtube-transcript] Method 1: youtube-transcript package...");
+
+  for (const config of buildLanguageConfigs(captionTracks)) {
+    try {
+      const items = await YoutubeTranscript.fetchTranscript(videoId, config);
+      if (!items?.length) continue;
+
+      const payload = buildTranscriptPayload(
+        items.map((item: any) => ({
+          time: formatTime((item.offset || 0) / 1000),
+          text: item.text,
+        })),
+      );
+
+      if (payload) {
+        console.log(
+          `[youtube-transcript] Package success with ${config.lang || "auto"}: ${payload.timestamps.length} segments`,
+        );
+        return payload;
+      }
+    } catch (error: any) {
+      console.log(
+        `[youtube-transcript] Package attempt failed (${config.lang || "auto"}): ${error?.message || error}`,
+      );
+    }
+  }
+
+  return null;
+}
+
+async function tryWatchPageExtraction(videoId: string) {
+  console.log("[youtube-transcript] Method 2: watch page extraction...");
+
+  try {
+    const pageResponse = await fetch(`https://www.youtube.com/watch?v=${videoId}&hl=en`, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+        Accept: "text/html",
+        "Accept-Encoding": "identity",
+        Cookie: "CONSENT=PENDING+987; SOCS=CAESEwgDEgk1MTIyNjM0NDMaAmVuIAEaBgiA_LyaBg",
+      },
+    });
+
+    if (!pageResponse.ok) {
+      await pageResponse.text();
+      return null;
+    }
+
+    const html = await pageResponse.text();
+    const match =
+      html.match(/var\s+ytInitialPlayerResponse\s*=\s*({[\s\S]+?})\s*;\s*var\s/) ||
+      html.match(/ytInitialPlayerResponse\s*=\s*({[\s\S]+?})\s*;/);
+
+    if (!match) {
+      console.log("[youtube-transcript] No player response found in watch page");
+      return null;
+    }
+
+    const playerData = JSON.parse(match[1]);
+    const tracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
+
+    if (!tracks.length) {
+      console.log("[youtube-transcript] No caption tracks found in watch page response");
+      return null;
+    }
+
+    console.log(`[youtube-transcript] Watch page found ${tracks.length} caption track(s)`);
+
+    const englishTrack = tracks.find((track: any) => track.languageCode === "en" || track.languageCode?.startsWith("en"));
+    const orderedTracks = englishTrack
+      ? [englishTrack, ...tracks.filter((track: any) => track !== englishTrack)]
+      : tracks;
+
+    for (const track of orderedTracks) {
+      if (!track.baseUrl) continue;
+
+      for (const format of ["json3", "srv1"]) {
+        try {
+          const captionUrl = new URL(track.baseUrl);
+          captionUrl.searchParams.set("fmt", format);
+
+          const captionResponse = await fetch(captionUrl.toString(), {
+            headers: { "Accept-Encoding": "identity" },
+          });
+
+          if (!captionResponse.ok) {
+            await captionResponse.text();
+            continue;
+          }
+
+          const body = await captionResponse.text();
+          if (body.length < 10) continue;
+
+          if (format === "json3") {
+            try {
+              const json = JSON.parse(body);
+              const payload = buildTranscriptPayload(
+                (json.events ?? []).flatMap((event: any) => {
+                  if (!event?.segs) return [];
+                  const text = event.segs.map((segment: any) => segment.utf8 || "").join("").trim();
+                  if (!text || text === "\n") return [];
+
+                  return [{
+                    time: formatTime((event.tStartMs || 0) / 1000),
+                    text: decodeHTMLEntities(text),
+                  }];
+                }),
+              );
+
+              if (payload) {
+                console.log(`[youtube-transcript] Watch page JSON3 success: ${payload.timestamps.length} segments`);
+                return payload;
+              }
+            } catch {
+              continue;
+            }
+          }
+
+          const xmlSegments = parseXmlTranscript(body);
+          if (xmlSegments?.length) {
+            const payload = buildTranscriptPayload(xmlSegments);
+            if (payload) {
+              console.log(`[youtube-transcript] Watch page XML success: ${payload.timestamps.length} segments`);
+              return payload;
+            }
+          }
+        } catch {
+          continue;
+        }
+      }
+    }
+  } catch (error) {
+    console.warn("[youtube-transcript] Watch page extraction failed:", error);
+  }
+
+  return null;
+}
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  const startTime = Date.now();
+
+  try {
+    const payload = await req.json().catch(() => null);
+    const youtubeUrl = payload?.youtubeUrl;
+    const userId = payload?.userId;
+
+    if (!youtubeUrl || typeof youtubeUrl !== "string") {
+      return softFailureResponse("YouTube URL is required.", "MISSING_URL");
+    }
+
+    const videoId = extractVideoId(youtubeUrl);
+    if (!videoId) {
+      return softFailureResponse("Invalid YouTube URL.", "INVALID_URL");
+    }
+
+    console.log(`[youtube-transcript] Processing video: ${videoId}`);
+
+    if (userId) {
+      try {
+        const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+        const { data: cached } = await supabase
+          .from("summaries")
+          .select("summary_text, extracted_text")
+          .eq("user_id", userId)
+          .eq("video_id", videoId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (cached?.summary_text) {
+          console.log("[youtube-transcript] Cache hit");
+          return jsonResponse({
+            success: true,
+            text: cached.extracted_text,
+            timestamps: [],
+            videoId,
+            cached: true,
+            cachedSummary: cached.summary_text,
+          });
+        }
+      } catch (error) {
+        console.warn("[youtube-transcript] Cache check failed:", error);
+      }
+    }
+
+    const captionTracks = await fetchCaptionTrackMetadata(videoId);
+
+    const packageTranscript = await tryYoutubeTranscriptPackage(videoId, captionTracks);
+    if (packageTranscript) {
+      const elapsed = Date.now() - startTime;
+      console.log(`[youtube-transcript] Success in ${elapsed}ms via package`);
+      return jsonResponse({ success: true, videoId, ...packageTranscript });
+    }
+
+    const watchPageTranscript = await tryWatchPageExtraction(videoId);
+    if (watchPageTranscript) {
+      const elapsed = Date.now() - startTime;
+      console.log(`[youtube-transcript] Success in ${elapsed}ms via watch page extraction`);
+      return jsonResponse({ success: true, videoId, ...watchPageTranscript });
+    }
+
+    const availableLanguages = Array.from(new Set(captionTracks.map((track) => track.language)));
+
+    if (availableLanguages.length > 0) {
+      return softFailureResponse(
+        `Captions exist for this video (${availableLanguages.join(", ")}), but YouTube blocked transcript download from the server. Please upload the video directly instead.`,
+        "CAPTIONS_BLOCKED",
+        { videoId, availableLanguages },
+      );
+    }
+
+    return softFailureResponse(
+      "No captions are available for this video. Please choose a video with captions or upload the video directly.",
+      "CAPTIONS_UNAVAILABLE",
+      { videoId, availableLanguages: [] },
+    );
+  } catch (error) {
+    const elapsed = Date.now() - startTime;
+    console.error(`[youtube-transcript] Failed after ${elapsed}ms:`, error);
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return errorResponse(message, 500);
+  }
+});

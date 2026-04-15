@@ -1,20 +1,28 @@
+<<<<<<< HEAD
 import { useState } from "react";
 <<<<<<< HEAD
 import { Sparkles, FileText, MessageSquare, Youtube, Film } from "lucide-react";
 =======
 import { Sparkles, FileText, MessageSquare, Video } from "lucide-react";
 >>>>>>> 1c8413d2115a076c529557bd6387fa5a773199ca
+=======
+import { useRef } from "react";
+import { FileText } from "lucide-react";
+import { Link } from "react-router-dom";
+>>>>>>> 86ffafd40c71b15bd4ba904e44079736d9f3772d
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { PDFUpload } from "@/components/PDFUpload";
-import { VideoUpload } from "@/components/VideoUpload";
-import { SummaryDisplay } from "@/components/SummaryDisplay";
-import { VideoSummaryDisplay } from "@/components/VideoSummaryDisplay";
-import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
-import heroBg from "@/assets/hero-bg.jpg";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { HeroSection } from "@/components/landing/HeroSection";
+import { FeaturesSection } from "@/components/landing/FeaturesSection";
+import { UploadSection } from "@/components/landing/UploadSection";
+import { PricingSection } from "@/components/landing/PricingSection";
+import { TestimonialsSection } from "@/components/landing/TestimonialsSection";
+import { FAQSection } from "@/components/landing/FAQSection";
+import { Footer } from "@/components/landing/Footer";
+import { useAuth } from "@/context/AuthContext";
 
 const Index = () => {
+<<<<<<< HEAD
   const [activeTab, setActiveTab] = useState<"pdf" | "video">("pdf");
   const [isProcessing, setIsProcessing] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
@@ -397,31 +405,56 @@ const Index = () => {
     setPdfText("");
     setVideoTranscript("");
     setTimestamps([]);
+=======
+  const { user } = useAuth();
+  const uploadRef = useRef<HTMLDivElement>(null);
+
+  const scrollToUpload = () => {
+    uploadRef.current?.scrollIntoView({ behavior: "smooth" });
+>>>>>>> 86ffafd40c71b15bd4ba904e44079736d9f3772d
   };
 
   return (
     <div className="min-h-screen bg-gradient-hero">
-      {/* Header */}
-      <header className="border-b border-border/50 backdrop-blur-sm bg-background/80 sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-4">
+      {/* Sticky Navbar */}
+      <header className="sticky top-0 z-50 border-b border-border/30 backdrop-blur-xl bg-background/60">
+        <div className="container mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="p-2 rounded-lg bg-gradient-primary">
-                <FileText className="h-6 w-6 text-primary-foreground" />
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl animated-gradient">
+                <FileText className="h-5 w-5 text-primary-foreground" />
               </div>
-              <h1 className="text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-                Lovable Summarize
-              </h1>
+              <span className="text-xl font-bold font-display gradient-text">
+                Summarify AI
+              </span>
             </div>
-            {summary && (
-              <Button variant="outline" onClick={handleReset}>
-                New Document
-              </Button>
-            )}
+            <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-muted-foreground">
+              <a href="#features" className="hover:text-foreground transition-colors">Features</a>
+              <a href="#pricing" className="hover:text-foreground transition-colors">Pricing</a>
+              <a href="#faq" className="hover:text-foreground transition-colors">FAQ</a>
+            </nav>
+            <div className="flex items-center gap-3">
+              <ThemeToggle />
+              {user ? (
+                <Button asChild variant="outline" className="glass-card text-sm">
+                  <Link to="/dashboard">Dashboard</Link>
+                </Button>
+              ) : (
+                <>
+                  <Button asChild variant="ghost" size="sm">
+                    <Link to="/login">Sign In</Link>
+                  </Button>
+                  <Button asChild size="sm" className="animated-gradient text-primary-foreground">
+                    <Link to="/register">Get Started</Link>
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </header>
 
+<<<<<<< HEAD
       {/* Main Content */}
       <main className="container mx-auto px-4 py-12">
         {!summary ? (
@@ -559,6 +592,24 @@ const Index = () => {
             )}
           </div>
         )}
+=======
+      {/* Landing Content */}
+      <main>
+        <HeroSection onGetStarted={scrollToUpload} />
+        <FeaturesSection />
+        <div ref={uploadRef}>
+          <UploadSection
+            onFileSelect={() => {}}
+            onVideoSelect={() => {}}
+            onYouTubeSubmit={() => {}}
+            isProcessing={false}
+          />
+        </div>
+        <PricingSection />
+        <TestimonialsSection />
+        <FAQSection />
+        <Footer />
+>>>>>>> 86ffafd40c71b15bd4ba904e44079736d9f3772d
       </main>
     </div>
   );

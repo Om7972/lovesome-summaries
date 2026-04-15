@@ -27,4 +27,31 @@ verify_jwt = false
 
 [functions.youtube-transcript]
 verify_jwt = false
+<<<<<<< HEAD
 >>>>>>> 1c8413d2115a076c529557bd6387fa5a773199ca
+=======
+
+[functions.generate-smart-notes]
+verify_jwt = false
+
+[functions.chat-with-content]
+verify_jwt = false
+
+[functions.generate-quiz]
+verify_jwt = false
+
+[functions.detect-highlights]
+verify_jwt = false
+
+[functions.generate-podcast]
+verify_jwt = false
+
+[functions.generate-knowledge-graph]
+verify_jwt = false
+
+[functions.search-knowledge]
+verify_jwt = false
+
+[functions.generate-content]
+verify_jwt = false
+>>>>>>> 86ffafd40c71b15bd4ba904e44079736d9f3772d

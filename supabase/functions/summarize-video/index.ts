@@ -2,15 +2,30 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 };
+
+function jsonResponse(body: Record<string, unknown>, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+function errorResponse(message: string, status = 500) {
+  console.error(`[summarize-video] Error: ${message}`);
+  return jsonResponse({ success: false, message }, status);
+}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const startTime = Date.now();
+
   try {
+<<<<<<< HEAD
 <<<<<<< HEAD
     // Parse request body
     let requestData;
@@ -167,88 +182,123 @@ serve(async (req) => {
 });
 =======
     const { transcript, videoName, timestamps } = await req.json();
+=======
+    const { transcript, videoName, timestamps, length, language } = await req.json();
+>>>>>>> 86ffafd40c71b15bd4ba904e44079736d9f3772d
 
-    if (!transcript) {
-      throw new Error('Transcript is required');
+    if (!transcript || typeof transcript !== 'string') {
+      return errorResponse('Transcript is required', 400);
+    }
+    if (transcript.length > 500000) {
+      return errorResponse('Transcript exceeds maximum allowed length', 413);
     }
 
-    console.log('Summarizing video transcript:', videoName);
+    const summaryLength = ['short', 'medium', 'detailed'].includes(length) ? length : 'medium';
+    const targetLang = language || 'english';
+    console.log(`[summarize-video] Processing: ${videoName}, length: ${summaryLength}, language: ${targetLang}`);
 
-    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
-    if (!OPENAI_API_KEY) {
-      throw new Error('OPENAI_API_KEY not configured');
+    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+    if (!LOVABLE_API_KEY) {
+      return errorResponse('LOVABLE_API_KEY not configured', 503);
     }
 
-    // Enhanced prompt for better video summarization
-    const prompt = `You are an expert video content analyzer. Create a comprehensive, detailed summary of the following video transcript.
+    const lengthInstruction = {
+      short: 'Keep the summary concise, under 200 words. Focus only on the most critical points.',
+      medium: 'Create a balanced summary of 300-500 words covering all key topics.',
+      detailed: 'Create a comprehensive summary of 600+ words with full detail on every topic discussed.',
+    }[summaryLength];
 
-Video: ${videoName || 'Untitled'}
+    const langInstruction = targetLang !== 'english'
+      ? `\n\nIMPORTANT: Write the entire summary in ${targetLang}.`
+      : '';
+
+    const prompt = `You are an expert video content analyzer. ${lengthInstruction}${langInstruction}
+
+Video: ${(videoName || 'Untitled').substring(0, 200)}
 
 Your summary should include:
 1. **Overview**: Brief introduction of the video's main purpose
-2. **Main Topics**: List the key subjects covered with detailed explanations
-3. **Key Points**: Comprehensive breakdown of all important information discussed
-4. **Detailed Insights**: Notable takeaways, conclusions, and analysis
-5. **Action Items**: Any specific recommendations, steps, or next actions mentioned
-6. **Additional Context**: Any supporting details, examples, or data provided
+2. **Main Topics**: Key subjects covered with detailed explanations
+3. **Key Points**: Comprehensive breakdown of important information
+4. **Detailed Insights**: Notable takeaways and analysis
+5. **Action Items**: Specific recommendations or next actions mentioned
 
-Format your response in clear sections with bullet points and sub-points for easy reading. Be thorough and capture all significant content.
+Format your response in clear sections with bullet points.
 
 Transcript:
 ${transcript.substring(0, 100000)}`;
 
-    // Call OpenAI for summarization
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-5-mini-2025-08-07',
+        model: 'google/gemini-3-flash-preview',
         messages: [
           {
             role: 'system',
-            content: 'You are an expert video content summarizer. Create comprehensive, detailed, well-structured summaries that capture all key points, insights, and actionable information from video transcripts. Be thorough and informative.'
+            content: 'You are an expert video content summarizer. Create well-structured summaries that capture all key points and actionable information.'
           },
-          {
-            role: 'user',
-            content: prompt
-          }
+          { role: 'user', content: prompt }
         ],
-        max_completion_tokens: 3000,
       }),
     });
 
     if (!response.ok) {
       const error = await response.text();
-      console.error('OpenAI API error:', error);
-      throw new Error(`OpenAI API error: ${response.status}`);
+      console.error('[summarize-video] AI API error:', response.status, error);
+      if (response.status === 429) return errorResponse('Rate limit exceeded. Please try again in a moment.', 429);
+      if (response.status === 402) return errorResponse('AI usage limit reached. Please add credits to continue.', 402);
+      return errorResponse(`AI API error: ${response.status}`);
     }
 
     const data = await response.json();
     const summary = data.choices[0].message.content;
+    const elapsed = Date.now() - startTime;
 
-    console.log('Video summary generated successfully');
-
-    return new Response(
-      JSON.stringify({ 
-        summary,
-        timestamps: timestamps || []
-      }),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    // If non-English, also generate English version
+    let translatedSummary = '';
+    if (targetLang !== 'english') {
+      try {
+        const transResp = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'google/gemini-3-flash-preview',
+            messages: [
+              { role: 'system', content: 'Translate the following summary to English. Keep the same formatting and structure.' },
+              { role: 'user', content: summary }
+            ],
+          }),
+        });
+        if (transResp.ok) {
+          const transData = await transResp.json();
+          translatedSummary = transData.choices[0].message.content;
+        }
+      } catch (e) {
+        console.error('[summarize-video] Translation fallback failed:', e);
       }
-    );
+    }
+
+    console.log(`[summarize-video] Success in ${elapsed}ms`);
+
+    return jsonResponse({
+      success: true,
+      summary,
+      translatedSummary,
+      language: targetLang,
+      timestamps: timestamps || [],
+      meta: { processingTimeMs: elapsed, inputLength: transcript.length, summaryLength: summary.length },
+    });
   } catch (error) {
-    console.error('Error in summarize-video function:', error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
-    );
+    const elapsed = Date.now() - startTime;
+    console.error(`[summarize-video] Failed after ${elapsed}ms:`, error);
+    return errorResponse(error instanceof Error ? error.message : 'Unknown error');
   }
 });
 >>>>>>> 1c8413d2115a076c529557bd6387fa5a773199ca
