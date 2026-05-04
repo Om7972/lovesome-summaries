@@ -294,9 +294,15 @@ export default function Dashboard() {
 
       if (!tData?.success) {
         const languages = tData?.availableLanguages || [];
+        const baseMessage = tData?.message || "Failed to process YouTube video.";
+        const alreadyMentionsUpload = /upload the video directly/i.test(baseMessage);
+        const description =
+          languages.length > 0 && !alreadyMentionsUpload
+            ? `${baseMessage} You can upload the video directly instead.`
+            : baseMessage;
         toast({
           title: tData?.code === "CAPTIONS_BLOCKED" ? "Transcript blocked" : "Transcript unavailable",
-          description: (tData?.message || "Failed to process YouTube video.") + (languages.length > 0 ? " You can upload the video directly instead." : ""),
+          description,
           variant: "destructive",
         });
         setYoutubeBlocked({ blocked: true, languages, videoId: tData?.videoId || "" });

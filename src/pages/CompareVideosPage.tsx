@@ -49,15 +49,23 @@ export default function CompareVideosPage() {
       const titles: string[] = [];
       for (const url of validUrls) {
         const { data, error } = await supabase.functions.invoke("youtube-transcript", {
-          body: { url },
+          body: { youtubeUrl: url, userId: user?.id },
         });
         if (error || !data?.success) {
-          toast.error(`Failed to fetch transcript for: ${url}`);
+          const msg = data?.message || `Failed to fetch transcript for: ${url}`;
+          toast.error(msg);
           setLoading(false);
           return;
         }
-        transcripts.push(data.transcript?.substring(0, 3000) || "");
-        titles.push(data.title || url);
+        const transcriptText: string = data.text || "";
+        if (!transcriptText.trim()) {
+          toast.error(`No transcript content for: ${url}`);
+          setLoading(false);
+          return;
+        }
+        transcripts.push(transcriptText.substring(0, 3000));
+        const vid = data.videoId ? ` (${data.videoId})` : "";
+        titles.push(`Video${vid}`);
       }
       setVideoTitles(titles);
 
