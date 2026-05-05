@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Brain, Search, MessageSquare, Share2, Loader2, Send, Sparkles } from "lucide-react";
+import { Brain, Search, MessageSquare, Lightbulb, Loader2, Send, Sparkles, RefreshCw } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +11,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import ReactMarkdown from "react-markdown";
-import { KnowledgeGraph } from "@/components/KnowledgeGraph";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -40,8 +39,8 @@ export default function SecondBrainPage() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [isChatLoading, setIsChatLoading] = useState(false);
-  const [allText, setAllText] = useState("");
-  const [allSummary, setAllSummary] = useState("");
+  const [insights, setInsights] = useState<string>("");
+  const [isInsightsLoading, setIsInsightsLoading] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -53,8 +52,6 @@ export default function SecondBrainPage() {
         .order("created_at", { ascending: false });
       if (data) {
         setSummaries(data);
-        setAllText(data.map(s => s.summary_text).join("\n\n"));
-        setAllSummary(data.map(s => s.tldr || s.summary_text.substring(0, 200)).join("\n"));
       }
     };
     fetchSummaries();
@@ -106,6 +103,27 @@ export default function SecondBrainPage() {
     }
   };
 
+  const handleGenerateInsights = async () => {
+    if (!user || summaries.length === 0) return;
+    setIsInsightsLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("search-knowledge", {
+        body: {
+          question:
+            "Analyze ALL my documents collectively. Identify: (1) the top 5 recurring themes, (2) surprising connections or patterns between different documents, (3) knowledge gaps I should explore next, and (4) one actionable insight I can apply today. Format as clean markdown with clear section headings and bullet points.",
+          userId: user.id,
+        },
+      });
+      if (error) throw error;
+      if (!data.success) throw new Error(data.message);
+      setInsights(data.answer);
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message || "Failed to generate insights", variant: "destructive" });
+    } finally {
+      setIsInsightsLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -144,7 +162,7 @@ export default function SecondBrainPage() {
         <TabsList className="grid w-full grid-cols-3 bg-muted/50">
           <TabsTrigger value="search" className="gap-2"><Search className="h-4 w-4" /> Search</TabsTrigger>
           <TabsTrigger value="chat" className="gap-2"><MessageSquare className="h-4 w-4" /> Chat</TabsTrigger>
-          <TabsTrigger value="graph" className="gap-2"><Share2 className="h-4 w-4" /> Graph</TabsTrigger>
+          <TabsTrigger value="insights" className="gap-2"><Lightbulb className="h-4 w-4" /> Insights</TabsTrigger>
         </TabsList>
 
         {/* SEARCH TAB */}
@@ -260,15 +278,47 @@ export default function SecondBrainPage() {
           </Card>
         </TabsContent>
 
-        {/* GRAPH TAB */}
-        <TabsContent value="graph">
-          {allText ? (
-            <KnowledgeGraph text={allText} summary={allSummary} />
-          ) : (
+        {/* INSIGHTS TAB */}
+        <TabsContent value="insights" className="space-y-4">
+          {summaries.length === 0 ? (
             <Card className="p-8 text-center bg-gradient-card border-border/50">
-              <Share2 className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-              <p className="text-muted-foreground text-sm">Add some summaries to visualize your knowledge graph</p>
+              <Lightbulb className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+              <p className="text-muted-foreground text-sm">Add some summaries to unlock AI-powered insights</p>
             </Card>
+          ) : (
+            <>
+              <Card className="p-5 bg-gradient-card backdrop-blur-sm border-border/50">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-xl bg-primary/10">
+                      <Lightbulb className="h-5 w-5 text-primary" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold font-display">AI Insights</h3>
+                      <p className="text-xs text-muted-foreground">Themes, patterns, and gaps across your knowledge</p>
+                    </div>
+                  </div>
+                  <Button onClick={handleGenerateInsights} disabled={isInsightsLoading} size="sm" className="gap-2">
+                    {isInsightsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : insights ? <RefreshCw className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
+                    {isInsightsLoading ? "Analyzing..." : insights ? "Regenerate" : "Generate Insights"}
+                  </Button>
+                </div>
+                <AnimatePresence mode="wait">
+                  {insights ? (
+                    <motion.div key="insights" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                      className="prose prose-sm dark:prose-invert max-w-none mt-2 p-4 rounded-xl bg-muted/40 border border-border/40">
+                      <ReactMarkdown>{insights}</ReactMarkdown>
+                    </motion.div>
+                  ) : !isInsightsLoading ? (
+                    <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-8">
+                      <p className="text-sm text-muted-foreground">
+                        Click <span className="font-semibold text-foreground">Generate Insights</span> to discover hidden themes, connections, and gaps across all {summaries.length} of your documents.
+                      </p>
+                    </motion.div>
+                  ) : null}
+                </AnimatePresence>
+              </Card>
+            </>
           )}
         </TabsContent>
       </Tabs>
