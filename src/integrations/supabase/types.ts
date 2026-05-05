@@ -143,6 +143,42 @@ export type Database = {
           },
         ]
       }
+      insights_history: {
+        Row: {
+          content: string
+          created_at: string
+          document_count: number
+          id: string
+          length: string
+          source_ids: Json
+          theme_count: number
+          tone: string
+          user_id: string
+        }
+        Insert: {
+          content?: string
+          created_at?: string
+          document_count?: number
+          id?: string
+          length?: string
+          source_ids?: Json
+          theme_count?: number
+          tone?: string
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          document_count?: number
+          id?: string
+          length?: string
+          source_ids?: Json
+          theme_count?: number
+          tone?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       podcasts: {
         Row: {
           audio_url: string
