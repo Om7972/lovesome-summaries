@@ -920,6 +920,73 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Share dialog */}
+      <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Share2 className="h-4 w-4 text-primary" /> Share insights</DialogTitle>
+            <DialogDescription className="text-xs">
+              Anyone with this link can view this insight report (read-only).
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 pt-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Expires</Label>
+              <Select value={shareExpiresIn} onValueChange={setShareExpiresIn}>
+                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="never">Never</SelectItem>
+                  <SelectItem value="1h">In 1 hour</SelectItem>
+                  <SelectItem value="24h">In 24 hours</SelectItem>
+                  <SelectItem value="7d">In 7 days</SelectItem>
+                  <SelectItem value="30d">In 30 days</SelectItem>
+                  <SelectItem value="custom">Custom date/time…</SelectItem>
+                </SelectContent>
+              </Select>
+              {shareExpiresIn === "custom" && (
+                <Input type="datetime-local" value={shareCustomExpires}
+                  onChange={e => setShareCustomExpires(e.target.value)}
+                  min={new Date(Date.now() + 5 * 60 * 1000).toISOString().slice(0, 16)} className="h-9 mt-1.5" />
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Password (optional)</Label>
+              <Input type="text" placeholder="Leave empty for no password"
+                value={sharePassword} maxLength={64}
+                onChange={e => setSharePassword(e.target.value)} className="h-9" />
+              <p className="text-[10px] text-muted-foreground">Recipients will be required to enter this password to view.</p>
+            </div>
+
+            {shareUrl && (
+              <div className="space-y-1.5">
+                <Label className="text-xs">Shareable link</Label>
+                <div className="flex gap-2">
+                  <Input readOnly value={shareUrl} className="h-9 font-mono text-[11px]" onFocus={e => e.target.select()} />
+                  <Button onClick={handleCopyShareUrl} size="sm" variant="outline" className="gap-1.5 shrink-0">
+                    {shareCopied ? <><Check className="h-3.5 w-3.5" /> Copied</> : <><Link2 className="h-3.5 w-3.5" /> Copy</>}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-2">
+            {activeHistoryId && history.find(h => h.id === activeHistoryId)?.share_token && (
+              <Button variant="ghost" className="text-destructive gap-1.5"
+                onClick={async () => { await handleRevokeShare(); setShareDialogOpen(false); }}>
+                <X className="h-4 w-4" /> Revoke
+              </Button>
+            )}
+            <Button onClick={handleCreateShare} disabled={isSavingShare || (shareExpiresIn === "custom" && !shareCustomExpires)} className="gap-1.5">
+              {isSavingShare ? <Loader2 className="h-4 w-4 animate-spin" /> : <Share2 className="h-4 w-4" />}
+              {shareUrl ? "Update link" : "Create link"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
