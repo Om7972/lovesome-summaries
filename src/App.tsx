@@ -27,6 +27,7 @@ import SecondBrainPage from "./pages/SecondBrainPage";
 import CreatorModePage from "./pages/CreatorModePage";
 import WorkspacesPage from "./pages/WorkspacesPage";
 import WorkspaceDetailPage from "./pages/WorkspaceDetailPage";
+import SharedInsightPage from "./pages/SharedInsightPage";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { PricingSection } from "@/components/landing/PricingSection";
 
@@ -73,6 +74,7 @@ const App = () => (
                 <Route path="/workspaces" element={<WorkspacesPage />} />
                 <Route path="/workspace/:id" element={<WorkspaceDetailPage />} />
               </Route>
+              <Route path="/insights/shared/:token" element={<SharedInsightPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>
