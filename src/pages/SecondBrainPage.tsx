@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
@@ -43,6 +44,8 @@ interface InsightHistoryItem {
   document_count: number;
   created_at: string;
   share_token?: string | null;
+  expires_at?: string | null;
+  password_hash?: string | null;
   source_ids?: any;
 }
 
@@ -94,6 +97,15 @@ export default function SecondBrainPage() {
   const [followUpInput, setFollowUpInput] = useState("");
   const [followUps, setFollowUps] = useState<ChatMessage[]>([]);
   const [isFollowUpLoading, setIsFollowUpLoading] = useState(false);
+
+  // Share dialog state
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [shareExpiresIn, setShareExpiresIn] = useState<string>("never"); // never | 1h | 24h | 7d | 30d | custom
+  const [shareCustomExpires, setShareCustomExpires] = useState<string>("");
+  const [sharePassword, setSharePassword] = useState<string>("");
+  const [shareUrl, setShareUrl] = useState<string>("");
+  const [shareCopied, setShareCopied] = useState(false);
+  const [isSavingShare, setIsSavingShare] = useState(false);
 
   const insightsPdfRef = useRef<HTMLDivElement>(null);
 
@@ -273,38 +285,90 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
   };
 
   // === SHARE LINK ===
-  const handleShare = async () => {
+  const openShareDialog = () => {
     if (!activeHistoryId) {
       toast({ title: "Save first", description: "Generate insights before sharing." });
       return;
     }
     const current = history.find(h => h.id === activeHistoryId);
-    let token = current?.share_token;
-    if (!token) {
-      token = (crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "")).slice(0, 40);
+    setSharePassword("");
+    setShareExpiresIn("never");
+    setShareCustomExpires("");
+    setShareCopied(false);
+    setShareUrl(current?.share_token ? `${window.location.origin}/insights/shared/${current.share_token}` : "");
+    setShareDialogOpen(true);
+  };
+
+  const computeExpiresAt = (): string | null => {
+    if (shareExpiresIn === "never") return null;
+    if (shareExpiresIn === "custom") {
+      if (!shareCustomExpires) return null;
+      const d = new Date(shareCustomExpires);
+      return isNaN(d.getTime()) ? null : d.toISOString();
+    }
+    const now = Date.now();
+    const map: Record<string, number> = {
+      "1h": 60 * 60 * 1000,
+      "24h": 24 * 60 * 60 * 1000,
+      "7d": 7 * 24 * 60 * 60 * 1000,
+      "30d": 30 * 24 * 60 * 60 * 1000,
+    };
+    const ms = map[shareExpiresIn];
+    return ms ? new Date(now + ms).toISOString() : null;
+  };
+
+  const hashPassword = async (pwd: string): Promise<string> => {
+    const data = new TextEncoder().encode(pwd);
+    const buf = await crypto.subtle.digest("SHA-256", data);
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+  };
+
+  const handleCreateShare = async () => {
+    if (!activeHistoryId) return;
+    setIsSavingShare(true);
+    try {
+      const current = history.find(h => h.id === activeHistoryId);
+      const token = current?.share_token
+        ?? (crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "")).slice(0, 40);
+      const expires_at = computeExpiresAt();
+      const password_hash = sharePassword.trim() ? await hashPassword(sharePassword.trim()) : null;
       const { error } = await supabase
         .from("insights_history" as any)
-        .update({ share_token: token })
+        .update({ share_token: token, expires_at, password_hash })
         .eq("id", activeHistoryId);
-      if (error) {
-        toast({ title: "Error", description: error.message, variant: "destructive" });
-        return;
-      }
-      setHistory(prev => prev.map(h => h.id === activeHistoryId ? { ...h, share_token: token } : h));
+      if (error) throw error;
+      setHistory(prev => prev.map(h => h.id === activeHistoryId
+        ? { ...h, share_token: token, expires_at, password_hash } : h));
+      const url = `${window.location.origin}/insights/shared/${token}`;
+      setShareUrl(url);
+      toast({ title: "🔗 Share link ready", description: password_hash ? "Password-protected link created." : "Anyone with the link can view." });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message || "Failed to create share link", variant: "destructive" });
+    } finally {
+      setIsSavingShare(false);
     }
-    const url = `${window.location.origin}/insights/shared/${token}`;
+  };
+
+  const handleCopyShareUrl = async () => {
+    if (!shareUrl) return;
     try {
-      await navigator.clipboard.writeText(url);
-      toast({ title: "🔗 Link copied!", description: "View-only share link copied to clipboard." });
+      await navigator.clipboard.writeText(shareUrl);
+      setShareCopied(true);
+      toast({ title: "Copied!", description: "Link copied to clipboard." });
+      setTimeout(() => setShareCopied(false), 2000);
     } catch {
-      toast({ title: "Share link", description: url });
+      toast({ title: "Copy failed", description: shareUrl, variant: "destructive" });
     }
   };
 
   const handleRevokeShare = async () => {
     if (!activeHistoryId) return;
-    await supabase.from("insights_history" as any).update({ share_token: null }).eq("id", activeHistoryId);
-    setHistory(prev => prev.map(h => h.id === activeHistoryId ? { ...h, share_token: null } : h));
+    await supabase.from("insights_history" as any)
+      .update({ share_token: null, expires_at: null, password_hash: null })
+      .eq("id", activeHistoryId);
+    setHistory(prev => prev.map(h => h.id === activeHistoryId
+      ? { ...h, share_token: null, expires_at: null, password_hash: null } : h));
+    setShareUrl("");
     toast({ title: "Revoked", description: "Share link disabled." });
   };
 
