@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { Brain, Search, MessageSquare, Lightbulb, Loader2, Send, Sparkles, RefreshCw, Download, History as HistoryIcon, Trash2, FileText } from "lucide-react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { Brain, Search, MessageSquare, Lightbulb, Loader2, Send, Sparkles, RefreshCw, Download, History as HistoryIcon, Trash2, FileText, Share2, FileSpreadsheet, GitCompare, Volume2, Play, Pause, Link2, Check, X } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { downloadTextAsPDF } from "@/lib/export-utils";
 import ReactMarkdown from "react-markdown";
+import { diffLines } from "@/lib/diff-lines";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -41,6 +42,8 @@ interface InsightHistoryItem {
   theme_count: number;
   document_count: number;
   created_at: string;
+  share_token?: string | null;
+  source_ids?: any;
 }
 
 const TONES = [
@@ -76,6 +79,16 @@ export default function SecondBrainPage() {
   const [length, setLength] = useState("medium");
   const [themeCount, setThemeCount] = useState(5);
   const [history, setHistory] = useState<InsightHistoryItem[]>([]);
+  const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
+  const [compareMode, setCompareMode] = useState(false);
+  const [compareIds, setCompareIds] = useState<string[]>([]);
+  const [showDiff, setShowDiff] = useState(false);
+
+  // Audio
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [isAudioLoading, setIsAudioLoading] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Follow-up Q&A
   const [followUpInput, setFollowUpInput] = useState("");
@@ -166,6 +179,7 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
     if (!user || summaries.length === 0) return;
     setIsInsightsLoading(true);
     setFollowUps([]);
+    setAudioUrl(null);
     try {
       const { data, error } = await supabase.functions.invoke("search-knowledge", {
         body: { question: buildInsightsPrompt(), userId: user.id },
@@ -187,7 +201,10 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
         })
         .select()
         .single();
-      if (saved) setHistory(prev => [saved as any, ...prev]);
+      if (saved) {
+        setHistory(prev => [saved as any, ...prev]);
+        setActiveHistoryId((saved as any).id);
+      }
     } catch (err: any) {
       toast({ title: "Error", description: err.message || "Failed to generate insights", variant: "destructive" });
     } finally {
@@ -242,12 +259,182 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
     setLength(item.length);
     setThemeCount(item.theme_count);
     setFollowUps([]);
+    setInsightSources(Array.isArray(item.source_ids) ? item.source_ids : []);
+    setActiveHistoryId(item.id);
+    setAudioUrl(null);
     toast({ title: "Loaded", description: `Insights from ${new Date(item.created_at).toLocaleString()}` });
   };
 
   const deleteHistoryItem = async (id: string) => {
     await supabase.from("insights_history" as any).delete().eq("id", id);
     setHistory(prev => prev.filter(h => h.id !== id));
+    setCompareIds(prev => prev.filter(x => x !== id));
+    if (activeHistoryId === id) setActiveHistoryId(null);
+  };
+
+  // === SHARE LINK ===
+  const handleShare = async () => {
+    if (!activeHistoryId) {
+      toast({ title: "Save first", description: "Generate insights before sharing." });
+      return;
+    }
+    const current = history.find(h => h.id === activeHistoryId);
+    let token = current?.share_token;
+    if (!token) {
+      token = (crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "")).slice(0, 40);
+      const { error } = await supabase
+        .from("insights_history" as any)
+        .update({ share_token: token })
+        .eq("id", activeHistoryId);
+      if (error) {
+        toast({ title: "Error", description: error.message, variant: "destructive" });
+        return;
+      }
+      setHistory(prev => prev.map(h => h.id === activeHistoryId ? { ...h, share_token: token } : h));
+    }
+    const url = `${window.location.origin}/insights/shared/${token}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast({ title: "🔗 Link copied!", description: "View-only share link copied to clipboard." });
+    } catch {
+      toast({ title: "Share link", description: url });
+    }
+  };
+
+  const handleRevokeShare = async () => {
+    if (!activeHistoryId) return;
+    await supabase.from("insights_history" as any).update({ share_token: null }).eq("id", activeHistoryId);
+    setHistory(prev => prev.map(h => h.id === activeHistoryId ? { ...h, share_token: null } : h));
+    toast({ title: "Revoked", description: "Share link disabled." });
+  };
+
+  // === CSV EXPORT ===
+  const handleExportCSV = () => {
+    if (!insights) return;
+    const sections = parseInsightSections(insights);
+    const rows: string[][] = [["Section", "Item", "Source Document IDs"]];
+    const srcIds = insightSources.map(s => s.id).join("; ");
+    Object.entries(sections).forEach(([section, items]) => {
+      if (items.length === 0) return;
+      items.forEach(item => rows.push([section, item, srcIds]));
+    });
+    if (rows.length === 1) rows.push(["Insights", insights.replace(/\n/g, " "), srcIds]);
+    const csv = rows.map(r => r.map(csvEscape).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `ai-insights-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast({ title: "CSV exported", description: `${rows.length - 1} rows downloaded.` });
+  };
+
+  // === REGENERATE FROM HISTORY (same settings) ===
+  const handleRegenerateFromHistory = async (item: InsightHistoryItem) => {
+    setTone(item.tone);
+    setLength(item.length);
+    setThemeCount(item.theme_count);
+    // Use current state for the next render; build prompt inline with item settings
+    if (!user || summaries.length === 0) return;
+    setIsInsightsLoading(true);
+    setFollowUps([]);
+    setAudioUrl(null);
+    try {
+      const lengthInstr = item.length === "short" ? "Keep it concise — 2-3 short bullets per section."
+        : item.length === "long" ? "Provide a deep, detailed analysis with rich examples and reasoning."
+        : "Use a balanced level of detail.";
+      const prompt = `Analyze ALL my documents collectively. Identify:
+(1) the top ${item.theme_count} recurring themes,
+(2) surprising connections or patterns between different documents,
+(3) ${item.theme_count} knowledge gaps I should explore next,
+(4) one actionable insight I can apply today.
+
+Use a ${item.tone} tone. ${lengthInstr}
+Format as clean markdown with clear section headings (## Themes, ## Connections, ## Knowledge Gaps, ## Action).
+When referencing a document, wrap its title in **bold** so I can identify it.`;
+      const { data, error } = await supabase.functions.invoke("search-knowledge", {
+        body: { question: prompt, userId: user.id },
+      });
+      if (error) throw error;
+      if (!data.success) throw new Error(data.message);
+      setInsights(data.answer);
+      setInsightSources(data.sources || []);
+      const { data: saved } = await supabase
+        .from("insights_history" as any)
+        .insert({
+          user_id: user.id,
+          content: data.answer,
+          tone: item.tone, length: item.length, theme_count: item.theme_count,
+          document_count: summaries.length,
+          source_ids: data.sources || [],
+        })
+        .select()
+        .single();
+      if (saved) {
+        setHistory(prev => [saved as any, ...prev]);
+        setActiveHistoryId((saved as any).id);
+      }
+      toast({ title: "Regenerated", description: "Fresh insights with the same settings." });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message || "Failed", variant: "destructive" });
+    } finally {
+      setIsInsightsLoading(false);
+    }
+  };
+
+  // === COMPARE / DIFF ===
+  const toggleCompareSelect = (id: string) => {
+    setCompareIds(prev => {
+      if (prev.includes(id)) return prev.filter(x => x !== id);
+      if (prev.length >= 2) return [prev[1], id];
+      return [...prev, id];
+    });
+  };
+
+  const diffResult = useMemo(() => {
+    if (compareIds.length !== 2) return null;
+    const a = history.find(h => h.id === compareIds[0]);
+    const b = history.find(h => h.id === compareIds[1]);
+    if (!a || !b) return null;
+    // Order by date so older = left
+    const [older, newer] = new Date(a.created_at) < new Date(b.created_at) ? [a, b] : [b, a];
+    return { older, newer, lines: diffLines(older.content, newer.content) };
+  }, [compareIds, history]);
+
+  // === AUDIO ===
+  const handleGenerateAudio = async () => {
+    if (!insights) return;
+    setIsAudioLoading(true);
+    try {
+      // Strip markdown for cleaner narration
+      const plain = insights.replace(/[#*`>_~]/g, "").replace(/\[(.+?)\]\(.+?\)/g, "$1");
+      const { data, error } = await supabase.functions.invoke("generate-podcast", {
+        body: { text: plain, voiceId: "JBFqnCBsd6RMkjVDRZzb" },
+      });
+      if (error) throw error;
+      if (!data.success) throw new Error(data.message || "Audio generation failed");
+      setAudioUrl(`data:audio/mpeg;base64,${data.audioContent}`);
+      toast({ title: "🎧 Audio ready", description: "Your insights are ready to listen." });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message || "Audio failed", variant: "destructive" });
+    } finally {
+      setIsAudioLoading(false);
+    }
+  };
+
+  const toggleAudio = () => {
+    if (!audioRef.current) return;
+    if (isPlaying) audioRef.current.pause();
+    else audioRef.current.play();
+  };
+
+  const downloadAudio = () => {
+    if (!audioUrl) return;
+    const a = document.createElement("a");
+    a.href = audioUrl;
+    a.download = `ai-insights-${new Date().toISOString().slice(0, 10)}.mp3`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
   };
 
   // Render insights with clickable doc links: replace **Title** with link if matches a summary
@@ -444,11 +631,46 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
                       {isInsightsLoading ? "Analyzing..." : insights ? "Regenerate" : "Generate Insights"}
                     </Button>
                     {insights && (
-                      <Button onClick={handleExportPDF} size="sm" variant="outline" className="gap-2">
-                        <Download className="h-4 w-4" /> Export PDF
-                      </Button>
+                      <>
+                        <Button onClick={handleExportPDF} size="sm" variant="outline" className="gap-2">
+                          <Download className="h-4 w-4" /> PDF
+                        </Button>
+                        <Button onClick={handleExportCSV} size="sm" variant="outline" className="gap-2">
+                          <FileSpreadsheet className="h-4 w-4" /> CSV
+                        </Button>
+                        <Button onClick={handleShare} size="sm" variant="outline" className="gap-2">
+                          <Share2 className="h-4 w-4" /> Share
+                        </Button>
+                        {activeHistoryId && history.find(h => h.id === activeHistoryId)?.share_token && (
+                          <Button onClick={handleRevokeShare} size="sm" variant="ghost" className="gap-2 text-destructive">
+                            <X className="h-4 w-4" /> Revoke link
+                          </Button>
+                        )}
+                        <Button onClick={handleGenerateAudio} disabled={isAudioLoading} size="sm" variant="outline" className="gap-2">
+                          {isAudioLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Volume2 className="h-4 w-4" />}
+                          {isAudioLoading ? "Generating..." : audioUrl ? "Regen audio" : "Audio"}
+                        </Button>
+                      </>
                     )}
                   </div>
+
+                  {audioUrl && (
+                    <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+                      className="mt-3 flex items-center gap-3 p-3 rounded-xl bg-muted/40 border border-border/40">
+                      <audio ref={audioRef} src={audioUrl}
+                        onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} onEnded={() => setIsPlaying(false)} />
+                      <Button onClick={toggleAudio} size="icon" className="h-10 w-10 rounded-full animated-gradient text-primary-foreground">
+                        {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 ml-0.5" />}
+                      </Button>
+                      <div className="flex-1">
+                        <p className="text-xs font-semibold">Audio insights</p>
+                        <p className="text-[10px] text-muted-foreground">AI-narrated · MP3</p>
+                      </div>
+                      <Button onClick={downloadAudio} size="sm" variant="outline" className="gap-1.5 text-xs">
+                        <Download className="h-3.5 w-3.5" /> MP3
+                      </Button>
+                    </motion.div>
+                  )}
 
                   <AnimatePresence mode="wait">
                     {insights ? (
@@ -523,20 +745,39 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
               <Card className="p-4 bg-gradient-card backdrop-blur-sm border-border/50 lg:max-h-[700px] overflow-y-auto">
                 <div className="flex items-center gap-2 mb-3">
                   <HistoryIcon className="h-4 w-4 text-primary" />
-                  <h3 className="font-semibold text-sm">Insights History</h3>
+                  <h3 className="font-semibold text-sm flex-1">Insights History</h3>
+                  <Button size="sm" variant={compareMode ? "default" : "ghost"} className="h-7 text-[10px] gap-1"
+                    onClick={() => { setCompareMode(m => !m); setCompareIds([]); setShowDiff(false); }}>
+                    <GitCompare className="h-3 w-3" /> {compareMode ? "Cancel" : "Compare"}
+                  </Button>
                 </div>
+                {compareMode && (
+                  <div className="mb-3 p-2 rounded-lg bg-primary/5 border border-primary/20">
+                    <p className="text-[10px] text-muted-foreground mb-1.5">Select 2 runs to diff ({compareIds.length}/2)</p>
+                    <Button size="sm" disabled={compareIds.length !== 2} className="h-7 text-[10px] w-full gap-1"
+                      onClick={() => setShowDiff(true)}>
+                      <GitCompare className="h-3 w-3" /> Show diff
+                    </Button>
+                  </div>
+                )}
                 {history.length === 0 ? (
                   <p className="text-xs text-muted-foreground text-center py-6">No previous runs yet</p>
                 ) : (
                   <div className="space-y-2">
                     {history.map(item => (
                       <motion.div key={item.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                        className="p-3 rounded-lg border border-border/50 bg-background/40 hover:border-primary/40 transition-all group">
+                        className={`p-3 rounded-lg border bg-background/40 hover:border-primary/40 transition-all group ${
+                          compareMode && compareIds.includes(item.id) ? "border-primary ring-1 ring-primary/40" :
+                          activeHistoryId === item.id ? "border-primary/60" : "border-border/50"
+                        }`}>
                         <div className="flex items-start justify-between gap-2 mb-1.5">
                           <span className="text-[10px] text-muted-foreground">{new Date(item.created_at).toLocaleString()}</span>
-                          <Button size="icon" variant="ghost" className="h-6 w-6 opacity-0 group-hover:opacity-100" onClick={() => deleteHistoryItem(item.id)}>
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
+                          <div className="flex items-center gap-1">
+                            {item.share_token && <Link2 className="h-3 w-3 text-primary" />}
+                            <Button size="icon" variant="ghost" className="h-6 w-6 opacity-0 group-hover:opacity-100" onClick={() => deleteHistoryItem(item.id)}>
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
                         </div>
                         <div className="flex flex-wrap gap-1 mb-2">
                           <Badge variant="secondary" className="text-[9px]">{item.tone}</Badge>
@@ -547,9 +788,22 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
                         <p className="text-xs text-muted-foreground line-clamp-2 mb-2">
                           {item.content.replace(/[#*`]/g, "").substring(0, 120)}
                         </p>
-                        <Button size="sm" variant="outline" className="h-7 text-xs w-full" onClick={() => loadHistoryItem(item)}>
-                          Load
-                        </Button>
+                        {compareMode ? (
+                          <Button size="sm" variant={compareIds.includes(item.id) ? "default" : "outline"}
+                            className="h-7 text-xs w-full gap-1" onClick={() => toggleCompareSelect(item.id)}>
+                            {compareIds.includes(item.id) ? <><Check className="h-3 w-3" /> Selected</> : "Select"}
+                          </Button>
+                        ) : (
+                          <div className="grid grid-cols-2 gap-1.5">
+                            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => loadHistoryItem(item)}>
+                              Load
+                            </Button>
+                            <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => handleRegenerateFromHistory(item)}
+                              disabled={isInsightsLoading} title="Regenerate with same settings">
+                              <RefreshCw className="h-3 w-3" /> Rerun
+                            </Button>
+                          </div>
+                        )}
                       </motion.div>
                     ))}
                   </div>
@@ -559,12 +813,88 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Diff overlay */}
+      <AnimatePresence>
+        {showDiff && diffResult && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => setShowDiff(false)}>
+            <motion.div initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95 }}
+              className="bg-card border border-border/60 rounded-2xl shadow-2xl max-w-4xl w-full max-h-[85vh] overflow-hidden flex flex-col"
+              onClick={e => e.stopPropagation()}>
+              <div className="p-4 border-b border-border/40 flex items-center gap-3">
+                <GitCompare className="h-5 w-5 text-primary" />
+                <div className="flex-1">
+                  <h3 className="font-bold font-display text-sm">Insights Diff</h3>
+                  <p className="text-[11px] text-muted-foreground">
+                    {new Date(diffResult.older.created_at).toLocaleString()} → {new Date(diffResult.newer.created_at).toLocaleString()}
+                  </p>
+                </div>
+                <Button size="icon" variant="ghost" onClick={() => setShowDiff(false)}><X className="h-4 w-4" /></Button>
+              </div>
+              <div className="overflow-y-auto p-4 font-mono text-xs leading-relaxed">
+                {diffResult.lines.map((l, i) => (
+                  <div key={i} className={`px-2 py-0.5 rounded whitespace-pre-wrap break-words ${
+                    l.type === "added" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-l-2 border-emerald-500" :
+                    l.type === "removed" ? "bg-rose-500/15 text-rose-700 dark:text-rose-300 border-l-2 border-rose-500 line-through opacity-80" :
+                    "text-muted-foreground"
+                  }`}>
+                    <span className="opacity-50 mr-2">{l.type === "added" ? "+" : l.type === "removed" ? "−" : " "}</span>
+                    {l.text || " "}
+                  </div>
+                ))}
+              </div>
+              <div className="p-3 border-t border-border/40 flex items-center justify-between text-[11px] text-muted-foreground">
+                <div className="flex gap-3">
+                  <span><span className="text-emerald-500">+</span> {diffResult.lines.filter(l => l.type === "added").length} added</span>
+                  <span><span className="text-rose-500">−</span> {diffResult.lines.filter(l => l.type === "removed").length} removed</span>
+                </div>
+                <Button size="sm" variant="outline" onClick={() => setShowDiff(false)}>Close</Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
 function escapeHtml(s: string) {
   return s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
+}
+
+function csvEscape(s: string) {
+  const v = (s ?? "").replace(/\r?\n/g, " ").trim();
+  if (/[",]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
+  return v;
+}
+
+// Parse markdown insight sections (## Themes / Connections / Knowledge Gaps / Action) into arrays of items.
+function parseInsightSections(md: string): Record<string, string[]> {
+  const sections: Record<string, string[]> = { Themes: [], Connections: [], "Knowledge Gaps": [], Action: [] };
+  const lines = md.split("\n");
+  let current: string | null = null;
+  for (const raw of lines) {
+    const line = raw.trim();
+    const h = line.match(/^#{1,3}\s*(.+)$/);
+    if (h) {
+      const title = h[1].toLowerCase();
+      if (title.includes("theme")) current = "Themes";
+      else if (title.includes("connect")) current = "Connections";
+      else if (title.includes("gap")) current = "Knowledge Gaps";
+      else if (title.includes("action")) current = "Action";
+      else current = null;
+      continue;
+    }
+    if (!current) continue;
+    const item = line.match(/^[-*\d+.]+\s*(.+)$/);
+    if (item) {
+      const clean = item[1].replace(/\*\*/g, "").trim();
+      if (clean) sections[current].push(clean);
+    }
+  }
+  return sections;
 }
 
 function markdownToHtml(md: string) {
