@@ -702,7 +702,7 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
                         <Button onClick={handleExportCSV} size="sm" variant="outline" className="gap-2">
                           <FileSpreadsheet className="h-4 w-4" /> CSV
                         </Button>
-                        <Button onClick={handleShare} size="sm" variant="outline" className="gap-2">
+                        <Button onClick={openShareDialog} size="sm" variant="outline" className="gap-2">
                           <Share2 className="h-4 w-4" /> Share
                         </Button>
                         {activeHistoryId && history.find(h => h.id === activeHistoryId)?.share_token && (
