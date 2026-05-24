@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
@@ -43,6 +44,8 @@ interface InsightHistoryItem {
   document_count: number;
   created_at: string;
   share_token?: string | null;
+  expires_at?: string | null;
+  password_hash?: string | null;
   source_ids?: any;
 }
 
@@ -94,6 +97,15 @@ export default function SecondBrainPage() {
   const [followUpInput, setFollowUpInput] = useState("");
   const [followUps, setFollowUps] = useState<ChatMessage[]>([]);
   const [isFollowUpLoading, setIsFollowUpLoading] = useState(false);
+
+  // Share dialog state
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [shareExpiresIn, setShareExpiresIn] = useState<string>("never"); // never | 1h | 24h | 7d | 30d | custom
+  const [shareCustomExpires, setShareCustomExpires] = useState<string>("");
+  const [sharePassword, setSharePassword] = useState<string>("");
+  const [shareUrl, setShareUrl] = useState<string>("");
+  const [shareCopied, setShareCopied] = useState(false);
+  const [isSavingShare, setIsSavingShare] = useState(false);
 
   const insightsPdfRef = useRef<HTMLDivElement>(null);
 
@@ -273,38 +285,90 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
   };
 
   // === SHARE LINK ===
-  const handleShare = async () => {
+  const openShareDialog = () => {
     if (!activeHistoryId) {
       toast({ title: "Save first", description: "Generate insights before sharing." });
       return;
     }
     const current = history.find(h => h.id === activeHistoryId);
-    let token = current?.share_token;
-    if (!token) {
-      token = (crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "")).slice(0, 40);
+    setSharePassword("");
+    setShareExpiresIn("never");
+    setShareCustomExpires("");
+    setShareCopied(false);
+    setShareUrl(current?.share_token ? `${window.location.origin}/insights/shared/${current.share_token}` : "");
+    setShareDialogOpen(true);
+  };
+
+  const computeExpiresAt = (): string | null => {
+    if (shareExpiresIn === "never") return null;
+    if (shareExpiresIn === "custom") {
+      if (!shareCustomExpires) return null;
+      const d = new Date(shareCustomExpires);
+      return isNaN(d.getTime()) ? null : d.toISOString();
+    }
+    const now = Date.now();
+    const map: Record<string, number> = {
+      "1h": 60 * 60 * 1000,
+      "24h": 24 * 60 * 60 * 1000,
+      "7d": 7 * 24 * 60 * 60 * 1000,
+      "30d": 30 * 24 * 60 * 60 * 1000,
+    };
+    const ms = map[shareExpiresIn];
+    return ms ? new Date(now + ms).toISOString() : null;
+  };
+
+  const hashPassword = async (pwd: string): Promise<string> => {
+    const data = new TextEncoder().encode(pwd);
+    const buf = await crypto.subtle.digest("SHA-256", data);
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+  };
+
+  const handleCreateShare = async () => {
+    if (!activeHistoryId) return;
+    setIsSavingShare(true);
+    try {
+      const current = history.find(h => h.id === activeHistoryId);
+      const token = current?.share_token
+        ?? (crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "")).slice(0, 40);
+      const expires_at = computeExpiresAt();
+      const password_hash = sharePassword.trim() ? await hashPassword(sharePassword.trim()) : null;
       const { error } = await supabase
         .from("insights_history" as any)
-        .update({ share_token: token })
+        .update({ share_token: token, expires_at, password_hash })
         .eq("id", activeHistoryId);
-      if (error) {
-        toast({ title: "Error", description: error.message, variant: "destructive" });
-        return;
-      }
-      setHistory(prev => prev.map(h => h.id === activeHistoryId ? { ...h, share_token: token } : h));
+      if (error) throw error;
+      setHistory(prev => prev.map(h => h.id === activeHistoryId
+        ? { ...h, share_token: token, expires_at, password_hash } : h));
+      const url = `${window.location.origin}/insights/shared/${token}`;
+      setShareUrl(url);
+      toast({ title: "🔗 Share link ready", description: password_hash ? "Password-protected link created." : "Anyone with the link can view." });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message || "Failed to create share link", variant: "destructive" });
+    } finally {
+      setIsSavingShare(false);
     }
-    const url = `${window.location.origin}/insights/shared/${token}`;
+  };
+
+  const handleCopyShareUrl = async () => {
+    if (!shareUrl) return;
     try {
-      await navigator.clipboard.writeText(url);
-      toast({ title: "🔗 Link copied!", description: "View-only share link copied to clipboard." });
+      await navigator.clipboard.writeText(shareUrl);
+      setShareCopied(true);
+      toast({ title: "Copied!", description: "Link copied to clipboard." });
+      setTimeout(() => setShareCopied(false), 2000);
     } catch {
-      toast({ title: "Share link", description: url });
+      toast({ title: "Copy failed", description: shareUrl, variant: "destructive" });
     }
   };
 
   const handleRevokeShare = async () => {
     if (!activeHistoryId) return;
-    await supabase.from("insights_history" as any).update({ share_token: null }).eq("id", activeHistoryId);
-    setHistory(prev => prev.map(h => h.id === activeHistoryId ? { ...h, share_token: null } : h));
+    await supabase.from("insights_history" as any)
+      .update({ share_token: null, expires_at: null, password_hash: null })
+      .eq("id", activeHistoryId);
+    setHistory(prev => prev.map(h => h.id === activeHistoryId
+      ? { ...h, share_token: null, expires_at: null, password_hash: null } : h));
+    setShareUrl("");
     toast({ title: "Revoked", description: "Share link disabled." });
   };
 
@@ -638,7 +702,7 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
                         <Button onClick={handleExportCSV} size="sm" variant="outline" className="gap-2">
                           <FileSpreadsheet className="h-4 w-4" /> CSV
                         </Button>
-                        <Button onClick={handleShare} size="sm" variant="outline" className="gap-2">
+                        <Button onClick={openShareDialog} size="sm" variant="outline" className="gap-2">
                           <Share2 className="h-4 w-4" /> Share
                         </Button>
                         {activeHistoryId && history.find(h => h.id === activeHistoryId)?.share_token && (
@@ -856,6 +920,73 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Share dialog */}
+      <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Share2 className="h-4 w-4 text-primary" /> Share insights</DialogTitle>
+            <DialogDescription className="text-xs">
+              Anyone with this link can view this insight report (read-only).
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 pt-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Expires</Label>
+              <Select value={shareExpiresIn} onValueChange={setShareExpiresIn}>
+                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="never">Never</SelectItem>
+                  <SelectItem value="1h">In 1 hour</SelectItem>
+                  <SelectItem value="24h">In 24 hours</SelectItem>
+                  <SelectItem value="7d">In 7 days</SelectItem>
+                  <SelectItem value="30d">In 30 days</SelectItem>
+                  <SelectItem value="custom">Custom date/time…</SelectItem>
+                </SelectContent>
+              </Select>
+              {shareExpiresIn === "custom" && (
+                <Input type="datetime-local" value={shareCustomExpires}
+                  onChange={e => setShareCustomExpires(e.target.value)}
+                  min={new Date(Date.now() + 5 * 60 * 1000).toISOString().slice(0, 16)} className="h-9 mt-1.5" />
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Password (optional)</Label>
+              <Input type="text" placeholder="Leave empty for no password"
+                value={sharePassword} maxLength={64}
+                onChange={e => setSharePassword(e.target.value)} className="h-9" />
+              <p className="text-[10px] text-muted-foreground">Recipients will be required to enter this password to view.</p>
+            </div>
+
+            {shareUrl && (
+              <div className="space-y-1.5">
+                <Label className="text-xs">Shareable link</Label>
+                <div className="flex gap-2">
+                  <Input readOnly value={shareUrl} className="h-9 font-mono text-[11px]" onFocus={e => e.target.select()} />
+                  <Button onClick={handleCopyShareUrl} size="sm" variant="outline" className="gap-1.5 shrink-0">
+                    {shareCopied ? <><Check className="h-3.5 w-3.5" /> Copied</> : <><Link2 className="h-3.5 w-3.5" /> Copy</>}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-2">
+            {activeHistoryId && history.find(h => h.id === activeHistoryId)?.share_token && (
+              <Button variant="ghost" className="text-destructive gap-1.5"
+                onClick={async () => { await handleRevokeShare(); setShareDialogOpen(false); }}>
+                <X className="h-4 w-4" /> Revoke
+              </Button>
+            )}
+            <Button onClick={handleCreateShare} disabled={isSavingShare || (shareExpiresIn === "custom" && !shareCustomExpires)} className="gap-1.5">
+              {isSavingShare ? <Loader2 className="h-4 w-4 animate-spin" /> : <Share2 className="h-4 w-4" />}
+              {shareUrl ? "Update link" : "Create link"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

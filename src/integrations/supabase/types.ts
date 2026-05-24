@@ -148,8 +148,10 @@ export type Database = {
           content: string
           created_at: string
           document_count: number
+          expires_at: string | null
           id: string
           length: string
+          password_hash: string | null
           share_token: string | null
           source_ids: Json
           theme_count: number
@@ -160,8 +162,10 @@ export type Database = {
           content?: string
           created_at?: string
           document_count?: number
+          expires_at?: string | null
           id?: string
           length?: string
+          password_hash?: string | null
           share_token?: string | null
           source_ids?: Json
           theme_count?: number
@@ -172,8 +176,10 @@ export type Database = {
           content?: string
           created_at?: string
           document_count?: number
+          expires_at?: string | null
           id?: string
           length?: string
+          password_hash?: string | null
           share_token?: string | null
           source_ids?: Json
           theme_count?: number
