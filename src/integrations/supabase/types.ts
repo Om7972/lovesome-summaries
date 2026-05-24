@@ -150,6 +150,7 @@ export type Database = {
           document_count: number
           id: string
           length: string
+          share_token: string | null
           source_ids: Json
           theme_count: number
           tone: string
@@ -161,6 +162,7 @@ export type Database = {
           document_count?: number
           id?: string
           length?: string
+          share_token?: string | null
           source_ids?: Json
           theme_count?: number
           tone?: string
@@ -172,6 +174,7 @@ export type Database = {
           document_count?: number
           id?: string
           length?: string
+          share_token?: string | null
           source_ids?: Json
           theme_count?: number
           tone?: string
