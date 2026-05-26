@@ -164,6 +164,33 @@ export type Database = {
         }
         Relationships: []
       }
+      insight_share_events: {
+        Row: {
+          created_at: string
+          event_type: string
+          id: string
+          insights_history_id: string
+          metadata: Json
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_type: string
+          id?: string
+          insights_history_id: string
+          metadata?: Json
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          event_type?: string
+          id?: string
+          insights_history_id?: string
+          metadata?: Json
+          user_id?: string
+        }
+        Relationships: []
+      }
       insights_history: {
         Row: {
           content: string

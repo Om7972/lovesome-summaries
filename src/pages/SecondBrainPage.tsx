@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Brain, Search, MessageSquare, Lightbulb, Loader2, Send, Sparkles, RefreshCw, Download, History as HistoryIcon, Trash2, FileText, Share2, FileSpreadsheet, GitCompare, Volume2, Play, Pause, Link2, Check, X, Settings2, Clock, Plus } from "lucide-react";
+import { Brain, Search, MessageSquare, Lightbulb, Loader2, Send, Sparkles, RefreshCw, Download, History as HistoryIcon, Trash2, FileText, Share2, FileSpreadsheet, GitCompare, Volume2, Play, Pause, Link2, Check, X, Settings2, Clock, Plus, Activity } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -112,6 +112,40 @@ export default function SecondBrainPage() {
   // Per-history-item share management UI
   const [openShareItemId, setOpenShareItemId] = useState<string | null>(null);
   const [copiedItemId, setCopiedItemId] = useState<string | null>(null);
+  // Per-item async action state: { [itemId]: 'copy' | 'extend' | 'revoke' | 'never' }
+  const [itemPendingAction, setItemPendingAction] = useState<Record<string, string | null>>({});
+  // Audit log: events per history item
+  type ShareEvent = { id: string; event_type: string; metadata: any; created_at: string };
+  const [itemEvents, setItemEvents] = useState<Record<string, ShareEvent[]>>({});
+
+  const setItemPending = (id: string, action: string | null) =>
+    setItemPendingAction(prev => ({ ...prev, [id]: action }));
+
+  const logShareEvent = async (insightsHistoryId: string, eventType: string, metadata: Record<string, any> = {}) => {
+    if (!user) return;
+    const { data } = await supabase
+      .from("insight_share_events" as any)
+      .insert({ insights_history_id: insightsHistoryId, user_id: user.id, event_type: eventType, metadata })
+      .select()
+      .single();
+    if (data) {
+      setItemEvents(prev => ({
+        ...prev,
+        [insightsHistoryId]: [data as any, ...(prev[insightsHistoryId] || [])],
+      }));
+    }
+  };
+
+  const loadShareEvents = async (insightsHistoryId: string) => {
+    if (!user) return;
+    const { data } = await supabase
+      .from("insight_share_events" as any)
+      .select("id, event_type, metadata, created_at")
+      .eq("insights_history_id", insightsHistoryId)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    setItemEvents(prev => ({ ...prev, [insightsHistoryId]: (data as any) || [] }));
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -332,6 +366,7 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
     setIsSavingShare(true);
     try {
       const current = history.find(h => h.id === activeHistoryId);
+      const isNewToken = !current?.share_token;
       const token = current?.share_token
         ?? (crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "")).slice(0, 40);
       const expires_at = computeExpiresAt();
@@ -345,6 +380,9 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
         ? { ...h, share_token: token, expires_at, password_hash } : h));
       const url = `${window.location.origin}/insights/shared/${token}`;
       setShareUrl(url);
+      await logShareEvent(activeHistoryId, isNewToken ? "create" : "update", {
+        expires_at, has_password: !!password_hash,
+      });
       toast({ title: "🔗 Share link ready", description: password_hash ? "Password-protected link created." : "Anyone with the link can view." });
     } catch (err: any) {
       toast({ title: "Error", description: err.message || "Failed to create share link", variant: "destructive" });
@@ -373,6 +411,7 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
     setHistory(prev => prev.map(h => h.id === activeHistoryId
       ? { ...h, share_token: null, expires_at: null, password_hash: null } : h));
     setShareUrl("");
+    await logShareEvent(activeHistoryId, "revoke", {});
     toast({ title: "Revoked", description: "Share link disabled." });
   };
 
@@ -380,18 +419,23 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
   const copyItemLink = async (item: InsightHistoryItem) => {
     if (!item.share_token) return;
     const url = `${window.location.origin}/insights/shared/${item.share_token}`;
+    setItemPending(item.id, "copy");
     try {
       await navigator.clipboard.writeText(url);
       setCopiedItemId(item.id);
+      await logShareEvent(item.id, "copy", {});
       toast({ title: "Copied!", description: "Share link copied to clipboard." });
       setTimeout(() => setCopiedItemId(prev => (prev === item.id ? null : prev)), 2000);
     } catch {
       toast({ title: "Copy failed", description: url, variant: "destructive" });
+    } finally {
+      setItemPending(item.id, null);
     }
   };
 
   const extendItemExpiration = async (item: InsightHistoryItem, addMs: number) => {
     if (!item.share_token) return;
+    setItemPending(item.id, "extend");
     const base = item.expires_at && new Date(item.expires_at).getTime() > Date.now()
       ? new Date(item.expires_at).getTime()
       : Date.now();
@@ -400,36 +444,47 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
       .update({ expires_at: next }).eq("id", item.id);
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
+      setItemPending(item.id, null);
       return;
     }
     setHistory(prev => prev.map(h => h.id === item.id ? { ...h, expires_at: next } : h));
+    await logShareEvent(item.id, "extend", { added_ms: addMs, new_expires_at: next });
     toast({ title: "Extended", description: `New expiry: ${new Date(next).toLocaleString()}` });
+    setItemPending(item.id, null);
   };
 
   const setItemNeverExpires = async (item: InsightHistoryItem) => {
     if (!item.share_token) return;
+    setItemPending(item.id, "never");
     const { error } = await supabase.from("insights_history" as any)
       .update({ expires_at: null }).eq("id", item.id);
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
+      setItemPending(item.id, null);
       return;
     }
     setHistory(prev => prev.map(h => h.id === item.id ? { ...h, expires_at: null } : h));
+    await logShareEvent(item.id, "extend", { added_ms: null, new_expires_at: null });
     toast({ title: "Updated", description: "Link no longer expires." });
+    setItemPending(item.id, null);
   };
 
   const revokeItemShare = async (item: InsightHistoryItem) => {
+    setItemPending(item.id, "revoke");
     const { error } = await supabase.from("insights_history" as any)
       .update({ share_token: null, expires_at: null, password_hash: null })
       .eq("id", item.id);
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
+      setItemPending(item.id, null);
       return;
     }
     setHistory(prev => prev.map(h => h.id === item.id
       ? { ...h, share_token: null, expires_at: null, password_hash: null } : h));
     setOpenShareItemId(null);
+    await logShareEvent(item.id, "revoke", {});
     toast({ title: "Revoked", description: "Share link disabled." });
+    setItemPending(item.id, null);
   };
 
   // === CSV EXPORT ===
@@ -930,7 +985,13 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
                               <Button size="sm"
                                 variant={item.share_token ? "default" : "outline"}
                                 className="h-7 text-xs gap-1"
-                                onClick={() => setOpenShareItemId(prev => prev === item.id ? null : item.id)}
+                                onClick={() => {
+                                  setOpenShareItemId(prev => {
+                                    const next = prev === item.id ? null : item.id;
+                                    if (next) loadShareEvents(item.id);
+                                    return next;
+                                  });
+                                }}
                                 title="Manage share link">
                                 <Settings2 className="h-3 w-3" /> Share
                               </Button>
@@ -963,8 +1024,12 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
                                             onFocus={e => e.target.select()}
                                           />
                                           <Button size="icon" variant="outline" className="h-7 w-7 shrink-0"
-                                            onClick={() => copyItemLink(item)} title="Copy link">
-                                            {copiedItemId === item.id
+                                            onClick={() => copyItemLink(item)}
+                                            disabled={!!itemPendingAction[item.id]}
+                                            title="Copy link">
+                                            {itemPendingAction[item.id] === "copy"
+                                              ? <Loader2 className="h-3 w-3 animate-spin" />
+                                              : copiedItemId === item.id
                                               ? <Check className="h-3 w-3 text-emerald-500" />
                                               : <Link2 className="h-3 w-3" />}
                                           </Button>
@@ -990,31 +1055,89 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
                                           <p className="text-[10px] text-muted-foreground mb-1">Extend expiration</p>
                                           <div className="grid grid-cols-4 gap-1">
                                             <Button size="sm" variant="outline" className="h-6 text-[10px] px-1 gap-0.5"
-                                              onClick={() => extendItemExpiration(item, 60 * 60 * 1000)}>
-                                              <Plus className="h-2.5 w-2.5" />1h
+                                              onClick={() => extendItemExpiration(item, 60 * 60 * 1000)}
+                                              disabled={!!itemPendingAction[item.id]}>
+                                              {itemPendingAction[item.id] === "extend"
+                                                ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                                                : <Plus className="h-2.5 w-2.5" />}1h
                                             </Button>
                                             <Button size="sm" variant="outline" className="h-6 text-[10px] px-1 gap-0.5"
-                                              onClick={() => extendItemExpiration(item, 24 * 60 * 60 * 1000)}>
+                                              onClick={() => extendItemExpiration(item, 24 * 60 * 60 * 1000)}
+                                              disabled={!!itemPendingAction[item.id]}>
                                               <Plus className="h-2.5 w-2.5" />1d
                                             </Button>
                                             <Button size="sm" variant="outline" className="h-6 text-[10px] px-1 gap-0.5"
-                                              onClick={() => extendItemExpiration(item, 7 * 24 * 60 * 60 * 1000)}>
+                                              onClick={() => extendItemExpiration(item, 7 * 24 * 60 * 60 * 1000)}
+                                              disabled={!!itemPendingAction[item.id]}>
                                               <Plus className="h-2.5 w-2.5" />7d
                                             </Button>
                                             <Button size="sm" variant="outline" className="h-6 text-[10px] px-1"
-                                              onClick={() => setItemNeverExpires(item)} title="Remove expiration">
-                                              ∞
+                                              onClick={() => setItemNeverExpires(item)}
+                                              disabled={!!itemPendingAction[item.id]}
+                                              title="Remove expiration">
+                                              {itemPendingAction[item.id] === "never"
+                                                ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                                                : "∞"}
                                             </Button>
                                           </div>
                                         </div>
 
                                         <Button size="sm" variant="ghost"
                                           className="h-7 text-[10px] w-full gap-1 text-destructive hover:text-destructive hover:bg-destructive/10"
-                                          onClick={() => revokeItemShare(item)}>
-                                          <X className="h-3 w-3" /> Revoke link
+                                          onClick={() => revokeItemShare(item)}
+                                          disabled={!!itemPendingAction[item.id]}>
+                                          {itemPendingAction[item.id] === "revoke"
+                                            ? <Loader2 className="h-3 w-3 animate-spin" />
+                                            : <X className="h-3 w-3" />} Revoke link
                                         </Button>
                                       </>
                                     )}
+
+                                    {/* Audit log */}
+                                    <div className="pt-2 mt-1 border-t border-border/40">
+                                      <div className="flex items-center gap-1 mb-1.5">
+                                        <Activity className="h-3 w-3 text-muted-foreground" />
+                                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                                          Activity
+                                        </p>
+                                      </div>
+                                      {(itemEvents[item.id]?.length ?? 0) === 0 ? (
+                                        <p className="text-[10px] text-muted-foreground italic">No events yet.</p>
+                                      ) : (
+                                        <ul className="space-y-1 max-h-32 overflow-y-auto">
+                                          {itemEvents[item.id].map(ev => {
+                                            const icon = ev.event_type === "create" ? "🔗"
+                                              : ev.event_type === "update" ? "✏️"
+                                              : ev.event_type === "extend" ? "⏱️"
+                                              : ev.event_type === "revoke" ? "🚫"
+                                              : ev.event_type === "copy" ? "📋"
+                                              : "•";
+                                            const label = ev.event_type === "extend" && ev.metadata?.new_expires_at === null
+                                              ? "set to never expire"
+                                              : ev.event_type === "extend" && ev.metadata?.new_expires_at
+                                              ? `extended to ${new Date(ev.metadata.new_expires_at).toLocaleString()}`
+                                              : ev.event_type === "create"
+                                              ? `link created${ev.metadata?.has_password ? " (password)" : ""}`
+                                              : ev.event_type === "update"
+                                              ? `settings updated${ev.metadata?.has_password ? " (password)" : ""}`
+                                              : ev.event_type === "revoke"
+                                              ? "link revoked"
+                                              : ev.event_type === "copy"
+                                              ? "link copied"
+                                              : ev.event_type;
+                                            return (
+                                              <li key={ev.id} className="flex items-start gap-1.5 text-[10px]">
+                                                <span>{icon}</span>
+                                                <span className="flex-1">
+                                                  <span className="text-foreground">{label}</span>
+                                                  <span className="text-muted-foreground"> · {new Date(ev.created_at).toLocaleString()}</span>
+                                                </span>
+                                              </li>
+                                            );
+                                          })}
+                                        </ul>
+                                      )}
+                                    </div>
                                   </div>
                                 </motion.div>
                               )}
