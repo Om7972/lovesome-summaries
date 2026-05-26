@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Brain, Search, MessageSquare, Lightbulb, Loader2, Send, Sparkles, RefreshCw, Download, History as HistoryIcon, Trash2, FileText, Share2, FileSpreadsheet, GitCompare, Volume2, Play, Pause, Link2, Check, X, Settings2, Clock, Plus } from "lucide-react";
+import { Brain, Search, MessageSquare, Lightbulb, Loader2, Send, Sparkles, RefreshCw, Download, History as HistoryIcon, Trash2, FileText, Share2, FileSpreadsheet, GitCompare, Volume2, Play, Pause, Link2, Check, X, Settings2, Clock, Plus, Activity } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -112,6 +112,40 @@ export default function SecondBrainPage() {
   // Per-history-item share management UI
   const [openShareItemId, setOpenShareItemId] = useState<string | null>(null);
   const [copiedItemId, setCopiedItemId] = useState<string | null>(null);
+  // Per-item async action state: { [itemId]: 'copy' | 'extend' | 'revoke' | 'never' }
+  const [itemPendingAction, setItemPendingAction] = useState<Record<string, string | null>>({});
+  // Audit log: events per history item
+  type ShareEvent = { id: string; event_type: string; metadata: any; created_at: string };
+  const [itemEvents, setItemEvents] = useState<Record<string, ShareEvent[]>>({});
+
+  const setItemPending = (id: string, action: string | null) =>
+    setItemPendingAction(prev => ({ ...prev, [id]: action }));
+
+  const logShareEvent = async (insightsHistoryId: string, eventType: string, metadata: Record<string, any> = {}) => {
+    if (!user) return;
+    const { data } = await supabase
+      .from("insight_share_events" as any)
+      .insert({ insights_history_id: insightsHistoryId, user_id: user.id, event_type: eventType, metadata })
+      .select()
+      .single();
+    if (data) {
+      setItemEvents(prev => ({
+        ...prev,
+        [insightsHistoryId]: [data as any, ...(prev[insightsHistoryId] || [])],
+      }));
+    }
+  };
+
+  const loadShareEvents = async (insightsHistoryId: string) => {
+    if (!user) return;
+    const { data } = await supabase
+      .from("insight_share_events" as any)
+      .select("id, event_type, metadata, created_at")
+      .eq("insights_history_id", insightsHistoryId)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    setItemEvents(prev => ({ ...prev, [insightsHistoryId]: (data as any) || [] }));
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -332,6 +366,7 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
     setIsSavingShare(true);
     try {
       const current = history.find(h => h.id === activeHistoryId);
+      const isNewToken = !current?.share_token;
       const token = current?.share_token
         ?? (crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "")).slice(0, 40);
       const expires_at = computeExpiresAt();
@@ -345,6 +380,9 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
         ? { ...h, share_token: token, expires_at, password_hash } : h));
       const url = `${window.location.origin}/insights/shared/${token}`;
       setShareUrl(url);
+      await logShareEvent(activeHistoryId, isNewToken ? "create" : "update", {
+        expires_at, has_password: !!password_hash,
+      });
       toast({ title: "🔗 Share link ready", description: password_hash ? "Password-protected link created." : "Anyone with the link can view." });
     } catch (err: any) {
       toast({ title: "Error", description: err.message || "Failed to create share link", variant: "destructive" });
@@ -373,6 +411,7 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
     setHistory(prev => prev.map(h => h.id === activeHistoryId
       ? { ...h, share_token: null, expires_at: null, password_hash: null } : h));
     setShareUrl("");
+    await logShareEvent(activeHistoryId, "revoke", {});
     toast({ title: "Revoked", description: "Share link disabled." });
   };
 
@@ -380,18 +419,23 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
   const copyItemLink = async (item: InsightHistoryItem) => {
     if (!item.share_token) return;
     const url = `${window.location.origin}/insights/shared/${item.share_token}`;
+    setItemPending(item.id, "copy");
     try {
       await navigator.clipboard.writeText(url);
       setCopiedItemId(item.id);
+      await logShareEvent(item.id, "copy", {});
       toast({ title: "Copied!", description: "Share link copied to clipboard." });
       setTimeout(() => setCopiedItemId(prev => (prev === item.id ? null : prev)), 2000);
     } catch {
       toast({ title: "Copy failed", description: url, variant: "destructive" });
+    } finally {
+      setItemPending(item.id, null);
     }
   };
 
   const extendItemExpiration = async (item: InsightHistoryItem, addMs: number) => {
     if (!item.share_token) return;
+    setItemPending(item.id, "extend");
     const base = item.expires_at && new Date(item.expires_at).getTime() > Date.now()
       ? new Date(item.expires_at).getTime()
       : Date.now();
@@ -400,36 +444,47 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
       .update({ expires_at: next }).eq("id", item.id);
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
+      setItemPending(item.id, null);
       return;
     }
     setHistory(prev => prev.map(h => h.id === item.id ? { ...h, expires_at: next } : h));
+    await logShareEvent(item.id, "extend", { added_ms: addMs, new_expires_at: next });
     toast({ title: "Extended", description: `New expiry: ${new Date(next).toLocaleString()}` });
+    setItemPending(item.id, null);
   };
 
   const setItemNeverExpires = async (item: InsightHistoryItem) => {
     if (!item.share_token) return;
+    setItemPending(item.id, "never");
     const { error } = await supabase.from("insights_history" as any)
       .update({ expires_at: null }).eq("id", item.id);
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
+      setItemPending(item.id, null);
       return;
     }
     setHistory(prev => prev.map(h => h.id === item.id ? { ...h, expires_at: null } : h));
+    await logShareEvent(item.id, "extend", { added_ms: null, new_expires_at: null });
     toast({ title: "Updated", description: "Link no longer expires." });
+    setItemPending(item.id, null);
   };
 
   const revokeItemShare = async (item: InsightHistoryItem) => {
+    setItemPending(item.id, "revoke");
     const { error } = await supabase.from("insights_history" as any)
       .update({ share_token: null, expires_at: null, password_hash: null })
       .eq("id", item.id);
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
+      setItemPending(item.id, null);
       return;
     }
     setHistory(prev => prev.map(h => h.id === item.id
       ? { ...h, share_token: null, expires_at: null, password_hash: null } : h));
     setOpenShareItemId(null);
+    await logShareEvent(item.id, "revoke", {});
     toast({ title: "Revoked", description: "Share link disabled." });
+    setItemPending(item.id, null);
   };
 
   // === CSV EXPORT ===
