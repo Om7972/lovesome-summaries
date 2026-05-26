@@ -143,6 +143,27 @@ export type Database = {
           },
         ]
       }
+      insight_share_attempts: {
+        Row: {
+          attempted_at: string
+          id: string
+          share_token: string
+          success: boolean
+        }
+        Insert: {
+          attempted_at?: string
+          id?: string
+          share_token: string
+          success?: boolean
+        }
+        Update: {
+          attempted_at?: string
+          id?: string
+          share_token?: string
+          success?: boolean
+        }
+        Relationships: []
+      }
       insights_history: {
         Row: {
           content: string
@@ -513,6 +534,35 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_shared_insight_content: {
+        Args: { _password_hash?: string; _token: string }
+        Returns: {
+          content: string
+          created_at: string
+          document_count: number
+          expires_at: string
+          id: string
+          length: string
+          source_ids: Json
+          theme_count: number
+          tone: string
+        }[]
+      }
+      get_shared_insight_meta: {
+        Args: { _token: string }
+        Returns: {
+          created_at: string
+          document_count: number
+          exists_flag: boolean
+          expired: boolean
+          expires_at: string
+          has_password: boolean
+          id: string
+          length: string
+          theme_count: number
+          tone: string
+        }[]
+      }
       get_today_summary_count: { Args: { p_user_id: string }; Returns: number }
       has_role: {
         Args: {
