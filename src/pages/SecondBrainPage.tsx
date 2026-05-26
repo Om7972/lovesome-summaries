@@ -918,15 +918,108 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
                             {compareIds.includes(item.id) ? <><Check className="h-3 w-3" /> Selected</> : "Select"}
                           </Button>
                         ) : (
-                          <div className="grid grid-cols-2 gap-1.5">
-                            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => loadHistoryItem(item)}>
-                              Load
-                            </Button>
-                            <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => handleRegenerateFromHistory(item)}
-                              disabled={isInsightsLoading} title="Regenerate with same settings">
-                              <RefreshCw className="h-3 w-3" /> Rerun
-                            </Button>
-                          </div>
+                          <>
+                            <div className="grid grid-cols-3 gap-1.5">
+                              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => loadHistoryItem(item)}>
+                                Load
+                              </Button>
+                              <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => handleRegenerateFromHistory(item)}
+                                disabled={isInsightsLoading} title="Regenerate with same settings">
+                                <RefreshCw className="h-3 w-3" /> Rerun
+                              </Button>
+                              <Button size="sm"
+                                variant={item.share_token ? "default" : "outline"}
+                                className="h-7 text-xs gap-1"
+                                onClick={() => setOpenShareItemId(prev => prev === item.id ? null : item.id)}
+                                title="Manage share link">
+                                <Settings2 className="h-3 w-3" /> Share
+                              </Button>
+                            </div>
+                            <AnimatePresence>
+                              {openShareItemId === item.id && (
+                                <motion.div
+                                  initial={{ opacity: 0, height: 0 }}
+                                  animate={{ opacity: 1, height: "auto" }}
+                                  exit={{ opacity: 0, height: 0 }}
+                                  className="overflow-hidden">
+                                  <div className="mt-2 p-2.5 rounded-lg bg-primary/5 border border-primary/20 space-y-2">
+                                    {!item.share_token ? (
+                                      <>
+                                        <p className="text-[10px] text-muted-foreground">
+                                          No share link yet. Use the main Share button after loading this run to configure expiration and password.
+                                        </p>
+                                        <Button size="sm" variant="outline" className="h-7 text-[10px] w-full gap-1"
+                                          onClick={() => { loadHistoryItem(item); openShareDialog(); }}>
+                                          <Share2 className="h-3 w-3" /> Create share link
+                                        </Button>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <div className="flex items-center gap-1.5">
+                                          <Input
+                                            readOnly
+                                            value={`${window.location.origin}/insights/shared/${item.share_token}`}
+                                            className="h-7 text-[10px] font-mono px-2"
+                                            onFocus={e => e.target.select()}
+                                          />
+                                          <Button size="icon" variant="outline" className="h-7 w-7 shrink-0"
+                                            onClick={() => copyItemLink(item)} title="Copy link">
+                                            {copiedItemId === item.id
+                                              ? <Check className="h-3 w-3 text-emerald-500" />
+                                              : <Link2 className="h-3 w-3" />}
+                                          </Button>
+                                        </div>
+
+                                        <div className="flex items-center justify-between gap-2 text-[10px]">
+                                          <span className="text-muted-foreground inline-flex items-center gap-1">
+                                            <Clock className="h-3 w-3" />
+                                            {item.expires_at
+                                              ? (new Date(item.expires_at).getTime() <= Date.now()
+                                                  ? <span className="text-destructive font-medium">Expired</span>
+                                                  : <>Expires {new Date(item.expires_at).toLocaleString()}</>)
+                                              : <span className="text-emerald-600 dark:text-emerald-400">Never expires</span>}
+                                          </span>
+                                          {item.password_hash && (
+                                            <Badge variant="secondary" className="text-[9px] gap-1 py-0">
+                                              🔒 Password
+                                            </Badge>
+                                          )}
+                                        </div>
+
+                                        <div>
+                                          <p className="text-[10px] text-muted-foreground mb-1">Extend expiration</p>
+                                          <div className="grid grid-cols-4 gap-1">
+                                            <Button size="sm" variant="outline" className="h-6 text-[10px] px-1 gap-0.5"
+                                              onClick={() => extendItemExpiration(item, 60 * 60 * 1000)}>
+                                              <Plus className="h-2.5 w-2.5" />1h
+                                            </Button>
+                                            <Button size="sm" variant="outline" className="h-6 text-[10px] px-1 gap-0.5"
+                                              onClick={() => extendItemExpiration(item, 24 * 60 * 60 * 1000)}>
+                                              <Plus className="h-2.5 w-2.5" />1d
+                                            </Button>
+                                            <Button size="sm" variant="outline" className="h-6 text-[10px] px-1 gap-0.5"
+                                              onClick={() => extendItemExpiration(item, 7 * 24 * 60 * 60 * 1000)}>
+                                              <Plus className="h-2.5 w-2.5" />7d
+                                            </Button>
+                                            <Button size="sm" variant="outline" className="h-6 text-[10px] px-1"
+                                              onClick={() => setItemNeverExpires(item)} title="Remove expiration">
+                                              ∞
+                                            </Button>
+                                          </div>
+                                        </div>
+
+                                        <Button size="sm" variant="ghost"
+                                          className="h-7 text-[10px] w-full gap-1 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                          onClick={() => revokeItemShare(item)}>
+                                          <X className="h-3 w-3" /> Revoke link
+                                        </Button>
+                                      </>
+                                    )}
+                                  </div>
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+                          </>
                         )}
                       </motion.div>
                     ))}
