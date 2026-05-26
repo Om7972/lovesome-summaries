@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Brain, Search, MessageSquare, Lightbulb, Loader2, Send, Sparkles, RefreshCw, Download, History as HistoryIcon, Trash2, FileText, Share2, FileSpreadsheet, GitCompare, Volume2, Play, Pause, Link2, Check, X } from "lucide-react";
+import { Brain, Search, MessageSquare, Lightbulb, Loader2, Send, Sparkles, RefreshCw, Download, History as HistoryIcon, Trash2, FileText, Share2, FileSpreadsheet, GitCompare, Volume2, Play, Pause, Link2, Check, X, Settings2, Clock, Plus } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -108,6 +108,10 @@ export default function SecondBrainPage() {
   const [isSavingShare, setIsSavingShare] = useState(false);
 
   const insightsPdfRef = useRef<HTMLDivElement>(null);
+
+  // Per-history-item share management UI
+  const [openShareItemId, setOpenShareItemId] = useState<string | null>(null);
+  const [copiedItemId, setCopiedItemId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -369,6 +373,62 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
     setHistory(prev => prev.map(h => h.id === activeHistoryId
       ? { ...h, share_token: null, expires_at: null, password_hash: null } : h));
     setShareUrl("");
+    toast({ title: "Revoked", description: "Share link disabled." });
+  };
+
+  // === Per-item (history) share management ===
+  const copyItemLink = async (item: InsightHistoryItem) => {
+    if (!item.share_token) return;
+    const url = `${window.location.origin}/insights/shared/${item.share_token}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedItemId(item.id);
+      toast({ title: "Copied!", description: "Share link copied to clipboard." });
+      setTimeout(() => setCopiedItemId(prev => (prev === item.id ? null : prev)), 2000);
+    } catch {
+      toast({ title: "Copy failed", description: url, variant: "destructive" });
+    }
+  };
+
+  const extendItemExpiration = async (item: InsightHistoryItem, addMs: number) => {
+    if (!item.share_token) return;
+    const base = item.expires_at && new Date(item.expires_at).getTime() > Date.now()
+      ? new Date(item.expires_at).getTime()
+      : Date.now();
+    const next = new Date(base + addMs).toISOString();
+    const { error } = await supabase.from("insights_history" as any)
+      .update({ expires_at: next }).eq("id", item.id);
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+      return;
+    }
+    setHistory(prev => prev.map(h => h.id === item.id ? { ...h, expires_at: next } : h));
+    toast({ title: "Extended", description: `New expiry: ${new Date(next).toLocaleString()}` });
+  };
+
+  const setItemNeverExpires = async (item: InsightHistoryItem) => {
+    if (!item.share_token) return;
+    const { error } = await supabase.from("insights_history" as any)
+      .update({ expires_at: null }).eq("id", item.id);
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+      return;
+    }
+    setHistory(prev => prev.map(h => h.id === item.id ? { ...h, expires_at: null } : h));
+    toast({ title: "Updated", description: "Link no longer expires." });
+  };
+
+  const revokeItemShare = async (item: InsightHistoryItem) => {
+    const { error } = await supabase.from("insights_history" as any)
+      .update({ share_token: null, expires_at: null, password_hash: null })
+      .eq("id", item.id);
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+      return;
+    }
+    setHistory(prev => prev.map(h => h.id === item.id
+      ? { ...h, share_token: null, expires_at: null, password_hash: null } : h));
+    setOpenShareItemId(null);
     toast({ title: "Revoked", description: "Share link disabled." });
   };
 
