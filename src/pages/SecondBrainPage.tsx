@@ -118,15 +118,17 @@ export default function SecondBrainPage() {
   type ShareEvent = { id: string; event_type: string; metadata: any; created_at: string };
   const [itemEvents, setItemEvents] = useState<Record<string, ShareEvent[]>>({});
   // Audit log: per-item filters, pagination, totals
-  type AuditFilter = { type: string; from: string; to: string };
+  type AuditFilter = { type: string; from: string; to: string; search: string };
   const [itemFilters, setItemFilters] = useState<Record<string, AuditFilter>>({});
   const [itemPageSize, setItemPageSize] = useState<Record<string, number>>({});
   const [itemHasMore, setItemHasMore] = useState<Record<string, boolean>>({});
   const [itemTotalEvents, setItemTotalEvents] = useState<Record<string, number>>({});
   const [itemLoadingEvents, setItemLoadingEvents] = useState<Record<string, boolean>>({});
+  const [csvConfirmOpen, setCsvConfirmOpen] = useState(false);
+  const [csvTargetItem, setCsvTargetItem] = useState<any>(null);
   const AUDIT_PAGE_STEP = 20;
   const getAuditFilter = (id: string): AuditFilter =>
-    itemFilters[id] || { type: "all", from: "", to: "" };
+    itemFilters[id] || { type: "all", from: "", to: "", search: "" };
 
   const setItemPending = (id: string, action: string | null) =>
     setItemPendingAction(prev => ({ ...prev, [id]: action }));
