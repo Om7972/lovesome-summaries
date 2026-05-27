@@ -118,15 +118,17 @@ export default function SecondBrainPage() {
   type ShareEvent = { id: string; event_type: string; metadata: any; created_at: string };
   const [itemEvents, setItemEvents] = useState<Record<string, ShareEvent[]>>({});
   // Audit log: per-item filters, pagination, totals
-  type AuditFilter = { type: string; from: string; to: string };
+  type AuditFilter = { type: string; from: string; to: string; search: string };
   const [itemFilters, setItemFilters] = useState<Record<string, AuditFilter>>({});
   const [itemPageSize, setItemPageSize] = useState<Record<string, number>>({});
   const [itemHasMore, setItemHasMore] = useState<Record<string, boolean>>({});
   const [itemTotalEvents, setItemTotalEvents] = useState<Record<string, number>>({});
   const [itemLoadingEvents, setItemLoadingEvents] = useState<Record<string, boolean>>({});
+  const [csvConfirmOpen, setCsvConfirmOpen] = useState(false);
+  const [csvTargetItem, setCsvTargetItem] = useState<any>(null);
   const AUDIT_PAGE_STEP = 20;
   const getAuditFilter = (id: string): AuditFilter =>
-    itemFilters[id] || { type: "all", from: "", to: "" };
+    itemFilters[id] || { type: "all", from: "", to: "", search: "" };
 
   const setItemPending = (id: string, action: string | null) =>
     setItemPendingAction(prev => ({ ...prev, [id]: action }));
@@ -158,6 +160,10 @@ export default function SecondBrainPage() {
     if (filter.type && filter.type !== "all") q = q.eq("event_type", filter.type);
     if (filter.from) q = q.gte("created_at", new Date(filter.from).toISOString());
     if (filter.to) q = q.lte("created_at", new Date(filter.to).toISOString());
+    if (filter.search?.trim()) {
+      const term = `%${filter.search.trim()}%`;
+      q = q.or(`event_type.ilike.${term},metadata::text.ilike.${term}`);
+    }
     return q.order("created_at", { ascending: false });
   };
 
@@ -214,6 +220,13 @@ export default function SecondBrainPage() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     toast({ title: "Audit log exported", description: `${rows.length} event(s) saved as CSV` });
+  };
+
+  const handleConfirmExportCsv = async () => {
+    if (!csvTargetItem) return;
+    setCsvConfirmOpen(false);
+    await exportAuditCsv(csvTargetItem);
+    setCsvTargetItem(null);
   };
 
   useEffect(() => {
@@ -1171,12 +1184,12 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
                                             Activity
                                           </p>
                                         </div>
-                                        <Button size="sm" variant="ghost"
-                                          className="h-6 px-1.5 text-[10px] gap-1"
-                                          onClick={() => exportAuditCsv(item)}
-                                          disabled={(itemTotalEvents[item.id] ?? 0) === 0}>
-                                          <Download className="h-3 w-3" /> CSV
-                                        </Button>
+                                         <Button size="sm" variant="ghost"
+                                           className="h-6 px-1.5 text-[10px] gap-1"
+                                           onClick={() => { setCsvTargetItem(item); setCsvConfirmOpen(true); }}
+                                           disabled={(itemTotalEvents[item.id] ?? 0) === 0}>
+                                           <Download className="h-3 w-3" /> CSV
+                                         </Button>
                                       </div>
 
                                       {/* Summary */}
@@ -1191,38 +1204,49 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
                                         );
                                       })()}
 
-                                      {/* Filters */}
-                                      <div className="grid grid-cols-3 gap-1 mb-1.5">
-                                        <Select
-                                          value={getAuditFilter(item.id).type}
-                                          onValueChange={(v) => updateAuditFilter(item.id, { type: v })}>
-                                          <SelectTrigger className="h-6 text-[10px] px-1.5">
-                                            <SelectValue />
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                            <SelectItem value="all" className="text-xs">All events</SelectItem>
-                                            <SelectItem value="create" className="text-xs">Create</SelectItem>
-                                            <SelectItem value="update" className="text-xs">Update</SelectItem>
-                                            <SelectItem value="extend" className="text-xs">Extend</SelectItem>
-                                            <SelectItem value="copy" className="text-xs">Copy</SelectItem>
-                                            <SelectItem value="revoke" className="text-xs">Revoke</SelectItem>
-                                          </SelectContent>
-                                        </Select>
-                                        <Input
-                                          type="date"
-                                          value={getAuditFilter(item.id).from}
-                                          onChange={(e) => updateAuditFilter(item.id, { from: e.target.value })}
-                                          className="h-6 text-[10px] px-1.5"
-                                          title="From date"
-                                        />
-                                        <Input
-                                          type="date"
-                                          value={getAuditFilter(item.id).to}
-                                          onChange={(e) => updateAuditFilter(item.id, { to: e.target.value })}
-                                          className="h-6 text-[10px] px-1.5"
-                                          title="To date"
-                                        />
-                                      </div>
+                                       {/* Filters */}
+                                       <div className="space-y-1 mb-1.5">
+                                         <div className="relative">
+                                           <Search className="absolute left-1.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
+                                           <Input
+                                             placeholder="Search events…"
+                                             value={getAuditFilter(item.id).search}
+                                             onChange={(e) => updateAuditFilter(item.id, { search: e.target.value })}
+                                             className="h-6 text-[10px] pl-6 pr-1.5"
+                                           />
+                                         </div>
+                                         <div className="grid grid-cols-3 gap-1">
+                                           <Select
+                                             value={getAuditFilter(item.id).type}
+                                             onValueChange={(v) => updateAuditFilter(item.id, { type: v })}>
+                                             <SelectTrigger className="h-6 text-[10px] px-1.5">
+                                               <SelectValue />
+                                             </SelectTrigger>
+                                             <SelectContent>
+                                               <SelectItem value="all" className="text-xs">All events</SelectItem>
+                                               <SelectItem value="create" className="text-xs">Create</SelectItem>
+                                               <SelectItem value="update" className="text-xs">Update</SelectItem>
+                                               <SelectItem value="extend" className="text-xs">Extend</SelectItem>
+                                               <SelectItem value="copy" className="text-xs">Copy</SelectItem>
+                                               <SelectItem value="revoke" className="text-xs">Revoke</SelectItem>
+                                             </SelectContent>
+                                           </Select>
+                                           <Input
+                                             type="date"
+                                             value={getAuditFilter(item.id).from}
+                                             onChange={(e) => updateAuditFilter(item.id, { from: e.target.value })}
+                                             className="h-6 text-[10px] px-1.5"
+                                             title="From date"
+                                           />
+                                           <Input
+                                             type="date"
+                                             value={getAuditFilter(item.id).to}
+                                             onChange={(e) => updateAuditFilter(item.id, { to: e.target.value })}
+                                             className="h-6 text-[10px] px-1.5"
+                                             title="To date"
+                                           />
+                                         </div>
+                                       </div>
 
                                       {(itemEvents[item.id]?.length ?? 0) === 0 ? (
                                         <p className="text-[10px] text-muted-foreground italic">No events yet.</p>
@@ -1394,6 +1418,28 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
             <Button onClick={handleCreateShare} disabled={isSavingShare || (shareExpiresIn === "custom" && !shareCustomExpires)} className="gap-1.5">
               {isSavingShare ? <Loader2 className="h-4 w-4 animate-spin" /> : <Share2 className="h-4 w-4" />}
               {shareUrl ? "Update link" : "Create link"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* CSV Export Confirmation */}
+      <Dialog open={csvConfirmOpen} onOpenChange={setCsvConfirmOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-sm">
+              <FileSpreadsheet className="h-4 w-4 text-primary" /> Export audit log
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Download {(itemTotalEvents[csvTargetItem?.id] ?? 0)} event{((itemTotalEvents[csvTargetItem?.id] ?? 0) === 1) ? "" : "s"} as a CSV file.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button size="sm" variant="ghost" onClick={() => { setCsvConfirmOpen(false); setCsvTargetItem(null); }}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={handleConfirmExportCsv} className="gap-1.5">
+              <Download className="h-3.5 w-3.5" /> Export CSV
             </Button>
           </DialogFooter>
         </DialogContent>
