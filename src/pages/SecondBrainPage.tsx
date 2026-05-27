@@ -117,6 +117,16 @@ export default function SecondBrainPage() {
   // Audit log: events per history item
   type ShareEvent = { id: string; event_type: string; metadata: any; created_at: string };
   const [itemEvents, setItemEvents] = useState<Record<string, ShareEvent[]>>({});
+  // Audit log: per-item filters, pagination, totals
+  type AuditFilter = { type: string; from: string; to: string };
+  const [itemFilters, setItemFilters] = useState<Record<string, AuditFilter>>({});
+  const [itemPageSize, setItemPageSize] = useState<Record<string, number>>({});
+  const [itemHasMore, setItemHasMore] = useState<Record<string, boolean>>({});
+  const [itemTotalEvents, setItemTotalEvents] = useState<Record<string, number>>({});
+  const [itemLoadingEvents, setItemLoadingEvents] = useState<Record<string, boolean>>({});
+  const AUDIT_PAGE_STEP = 20;
+  const getAuditFilter = (id: string): AuditFilter =>
+    itemFilters[id] || { type: "all", from: "", to: "" };
 
   const setItemPending = (id: string, action: string | null) =>
     setItemPendingAction(prev => ({ ...prev, [id]: action }));
@@ -133,18 +143,77 @@ export default function SecondBrainPage() {
         ...prev,
         [insightsHistoryId]: [data as any, ...(prev[insightsHistoryId] || [])],
       }));
+      setItemTotalEvents(prev => ({
+        ...prev,
+        [insightsHistoryId]: (prev[insightsHistoryId] || 0) + 1,
+      }));
     }
   };
 
-  const loadShareEvents = async (insightsHistoryId: string) => {
-    if (!user) return;
-    const { data } = await supabase
+  const buildEventsQuery = (insightsHistoryId: string, filter: AuditFilter) => {
+    let q = supabase
       .from("insight_share_events" as any)
-      .select("id, event_type, metadata, created_at")
-      .eq("insights_history_id", insightsHistoryId)
-      .order("created_at", { ascending: false })
-      .limit(20);
+      .select("id, event_type, metadata, created_at", { count: "exact" })
+      .eq("insights_history_id", insightsHistoryId);
+    if (filter.type && filter.type !== "all") q = q.eq("event_type", filter.type);
+    if (filter.from) q = q.gte("created_at", new Date(filter.from).toISOString());
+    if (filter.to) q = q.lte("created_at", new Date(filter.to).toISOString());
+    return q.order("created_at", { ascending: false });
+  };
+
+  const loadShareEvents = async (
+    insightsHistoryId: string,
+    opts?: { pageSize?: number; filter?: AuditFilter }
+  ) => {
+    if (!user) return;
+    const filter = opts?.filter || getAuditFilter(insightsHistoryId);
+    const pageSize = opts?.pageSize ?? itemPageSize[insightsHistoryId] ?? AUDIT_PAGE_STEP;
+    setItemLoadingEvents(prev => ({ ...prev, [insightsHistoryId]: true }));
+    const { data, count } = await buildEventsQuery(insightsHistoryId, filter).range(0, pageSize - 1);
     setItemEvents(prev => ({ ...prev, [insightsHistoryId]: (data as any) || [] }));
+    setItemPageSize(prev => ({ ...prev, [insightsHistoryId]: pageSize }));
+    setItemTotalEvents(prev => ({ ...prev, [insightsHistoryId]: count ?? (data?.length ?? 0) }));
+    setItemHasMore(prev => ({
+      ...prev,
+      [insightsHistoryId]: (count ?? 0) > (data?.length ?? 0),
+    }));
+    setItemLoadingEvents(prev => ({ ...prev, [insightsHistoryId]: false }));
+  };
+
+  const updateAuditFilter = (id: string, patch: Partial<AuditFilter>) => {
+    const next = { ...getAuditFilter(id), ...patch };
+    setItemFilters(prev => ({ ...prev, [id]: next }));
+    loadShareEvents(id, { pageSize: AUDIT_PAGE_STEP, filter: next });
+  };
+
+  const loadMoreEvents = (id: string) => {
+    const next = (itemPageSize[id] ?? AUDIT_PAGE_STEP) + AUDIT_PAGE_STEP;
+    loadShareEvents(id, { pageSize: next });
+  };
+
+  const exportAuditCsv = async (item: any) => {
+    if (!user) return;
+    const filter = getAuditFilter(item.id);
+    const { data } = await buildEventsQuery(item.id, filter).range(0, 9999);
+    const rows = (data as any[]) || [];
+    const escape = (v: any) => {
+      const s = v == null ? "" : typeof v === "string" ? v : JSON.stringify(v);
+      return `"${s.replace(/"/g, '""')}"`;
+    };
+    const header = ["created_at", "event_type", "metadata"];
+    const csv = [header.join(",")]
+      .concat(rows.map(r => [r.created_at, r.event_type, r.metadata].map(escape).join(",")))
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `share-audit-${item.id.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast({ title: "Audit log exported", description: `${rows.length} event(s) saved as CSV` });
   };
 
   useEffect(() => {
@@ -1095,16 +1164,70 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
 
                                     {/* Audit log */}
                                     <div className="pt-2 mt-1 border-t border-border/40">
-                                      <div className="flex items-center gap-1 mb-1.5">
-                                        <Activity className="h-3 w-3 text-muted-foreground" />
-                                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-                                          Activity
-                                        </p>
+                                      <div className="flex items-center justify-between gap-1 mb-1.5">
+                                        <div className="flex items-center gap-1">
+                                          <Activity className="h-3 w-3 text-muted-foreground" />
+                                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                                            Activity
+                                          </p>
+                                        </div>
+                                        <Button size="sm" variant="ghost"
+                                          className="h-6 px-1.5 text-[10px] gap-1"
+                                          onClick={() => exportAuditCsv(item)}
+                                          disabled={(itemTotalEvents[item.id] ?? 0) === 0}>
+                                          <Download className="h-3 w-3" /> CSV
+                                        </Button>
                                       </div>
+
+                                      {/* Summary */}
+                                      {(() => {
+                                        const total = itemTotalEvents[item.id] ?? 0;
+                                        const last = itemEvents[item.id]?.[0]?.created_at;
+                                        return (
+                                          <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-1.5 px-1.5 py-1 rounded bg-muted/40">
+                                            <span>{total} event{total === 1 ? "" : "s"}</span>
+                                            <span>{last ? `Last: ${new Date(last).toLocaleString()}` : "No activity"}</span>
+                                          </div>
+                                        );
+                                      })()}
+
+                                      {/* Filters */}
+                                      <div className="grid grid-cols-3 gap-1 mb-1.5">
+                                        <Select
+                                          value={getAuditFilter(item.id).type}
+                                          onValueChange={(v) => updateAuditFilter(item.id, { type: v })}>
+                                          <SelectTrigger className="h-6 text-[10px] px-1.5">
+                                            <SelectValue />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            <SelectItem value="all" className="text-xs">All events</SelectItem>
+                                            <SelectItem value="create" className="text-xs">Create</SelectItem>
+                                            <SelectItem value="update" className="text-xs">Update</SelectItem>
+                                            <SelectItem value="extend" className="text-xs">Extend</SelectItem>
+                                            <SelectItem value="copy" className="text-xs">Copy</SelectItem>
+                                            <SelectItem value="revoke" className="text-xs">Revoke</SelectItem>
+                                          </SelectContent>
+                                        </Select>
+                                        <Input
+                                          type="date"
+                                          value={getAuditFilter(item.id).from}
+                                          onChange={(e) => updateAuditFilter(item.id, { from: e.target.value })}
+                                          className="h-6 text-[10px] px-1.5"
+                                          title="From date"
+                                        />
+                                        <Input
+                                          type="date"
+                                          value={getAuditFilter(item.id).to}
+                                          onChange={(e) => updateAuditFilter(item.id, { to: e.target.value })}
+                                          className="h-6 text-[10px] px-1.5"
+                                          title="To date"
+                                        />
+                                      </div>
+
                                       {(itemEvents[item.id]?.length ?? 0) === 0 ? (
                                         <p className="text-[10px] text-muted-foreground italic">No events yet.</p>
                                       ) : (
-                                        <ul className="space-y-1 max-h-32 overflow-y-auto">
+                                        <ul className="space-y-1 max-h-40 overflow-y-auto pr-1">
                                           {itemEvents[item.id].map(ev => {
                                             const icon = ev.event_type === "create" ? "🔗"
                                               : ev.event_type === "update" ? "✏️"
@@ -1135,6 +1258,18 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
                                               </li>
                                             );
                                           })}
+                                          {itemHasMore[item.id] && (
+                                            <li>
+                                              <Button size="sm" variant="ghost"
+                                                className="h-6 w-full text-[10px] gap-1"
+                                                onClick={() => loadMoreEvents(item.id)}
+                                                disabled={itemLoadingEvents[item.id]}>
+                                                {itemLoadingEvents[item.id]
+                                                  ? <Loader2 className="h-3 w-3 animate-spin" />
+                                                  : <Plus className="h-3 w-3" />} Load more
+                                              </Button>
+                                            </li>
+                                          )}
                                         </ul>
                                       )}
                                     </div>
