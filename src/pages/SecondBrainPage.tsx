@@ -117,6 +117,16 @@ export default function SecondBrainPage() {
   // Audit log: events per history item
   type ShareEvent = { id: string; event_type: string; metadata: any; created_at: string };
   const [itemEvents, setItemEvents] = useState<Record<string, ShareEvent[]>>({});
+  // Audit log: per-item filters, pagination, totals
+  type AuditFilter = { type: string; from: string; to: string };
+  const [itemFilters, setItemFilters] = useState<Record<string, AuditFilter>>({});
+  const [itemPageSize, setItemPageSize] = useState<Record<string, number>>({});
+  const [itemHasMore, setItemHasMore] = useState<Record<string, boolean>>({});
+  const [itemTotalEvents, setItemTotalEvents] = useState<Record<string, number>>({});
+  const [itemLoadingEvents, setItemLoadingEvents] = useState<Record<string, boolean>>({});
+  const AUDIT_PAGE_STEP = 20;
+  const getAuditFilter = (id: string): AuditFilter =>
+    itemFilters[id] || { type: "all", from: "", to: "" };
 
   const setItemPending = (id: string, action: string | null) =>
     setItemPendingAction(prev => ({ ...prev, [id]: action }));
@@ -133,18 +143,77 @@ export default function SecondBrainPage() {
         ...prev,
         [insightsHistoryId]: [data as any, ...(prev[insightsHistoryId] || [])],
       }));
+      setItemTotalEvents(prev => ({
+        ...prev,
+        [insightsHistoryId]: (prev[insightsHistoryId] || 0) + 1,
+      }));
     }
   };
 
-  const loadShareEvents = async (insightsHistoryId: string) => {
-    if (!user) return;
-    const { data } = await supabase
+  const buildEventsQuery = (insightsHistoryId: string, filter: AuditFilter) => {
+    let q = supabase
       .from("insight_share_events" as any)
-      .select("id, event_type, metadata, created_at")
-      .eq("insights_history_id", insightsHistoryId)
-      .order("created_at", { ascending: false })
-      .limit(20);
+      .select("id, event_type, metadata, created_at", { count: "exact" })
+      .eq("insights_history_id", insightsHistoryId);
+    if (filter.type && filter.type !== "all") q = q.eq("event_type", filter.type);
+    if (filter.from) q = q.gte("created_at", new Date(filter.from).toISOString());
+    if (filter.to) q = q.lte("created_at", new Date(filter.to).toISOString());
+    return q.order("created_at", { ascending: false });
+  };
+
+  const loadShareEvents = async (
+    insightsHistoryId: string,
+    opts?: { pageSize?: number; filter?: AuditFilter }
+  ) => {
+    if (!user) return;
+    const filter = opts?.filter || getAuditFilter(insightsHistoryId);
+    const pageSize = opts?.pageSize ?? itemPageSize[insightsHistoryId] ?? AUDIT_PAGE_STEP;
+    setItemLoadingEvents(prev => ({ ...prev, [insightsHistoryId]: true }));
+    const { data, count } = await buildEventsQuery(insightsHistoryId, filter).range(0, pageSize - 1);
     setItemEvents(prev => ({ ...prev, [insightsHistoryId]: (data as any) || [] }));
+    setItemPageSize(prev => ({ ...prev, [insightsHistoryId]: pageSize }));
+    setItemTotalEvents(prev => ({ ...prev, [insightsHistoryId]: count ?? (data?.length ?? 0) }));
+    setItemHasMore(prev => ({
+      ...prev,
+      [insightsHistoryId]: (count ?? 0) > (data?.length ?? 0),
+    }));
+    setItemLoadingEvents(prev => ({ ...prev, [insightsHistoryId]: false }));
+  };
+
+  const updateAuditFilter = (id: string, patch: Partial<AuditFilter>) => {
+    const next = { ...getAuditFilter(id), ...patch };
+    setItemFilters(prev => ({ ...prev, [id]: next }));
+    loadShareEvents(id, { pageSize: AUDIT_PAGE_STEP, filter: next });
+  };
+
+  const loadMoreEvents = (id: string) => {
+    const next = (itemPageSize[id] ?? AUDIT_PAGE_STEP) + AUDIT_PAGE_STEP;
+    loadShareEvents(id, { pageSize: next });
+  };
+
+  const exportAuditCsv = async (item: any) => {
+    if (!user) return;
+    const filter = getAuditFilter(item.id);
+    const { data } = await buildEventsQuery(item.id, filter).range(0, 9999);
+    const rows = (data as any[]) || [];
+    const escape = (v: any) => {
+      const s = v == null ? "" : typeof v === "string" ? v : JSON.stringify(v);
+      return `"${s.replace(/"/g, '""')}"`;
+    };
+    const header = ["created_at", "event_type", "metadata"];
+    const csv = [header.join(",")]
+      .concat(rows.map(r => [r.created_at, r.event_type, r.metadata].map(escape).join(",")))
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `share-audit-${item.id.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast({ title: "Audit log exported", description: `${rows.length} event(s) saved as CSV` });
   };
 
   useEffect(() => {
