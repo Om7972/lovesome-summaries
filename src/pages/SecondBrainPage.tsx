@@ -160,6 +160,10 @@ export default function SecondBrainPage() {
     if (filter.type && filter.type !== "all") q = q.eq("event_type", filter.type);
     if (filter.from) q = q.gte("created_at", new Date(filter.from).toISOString());
     if (filter.to) q = q.lte("created_at", new Date(filter.to).toISOString());
+    if (filter.search?.trim()) {
+      const term = `%${filter.search.trim()}%`;
+      q = q.or(`event_type.ilike.${term},metadata::text.ilike.${term}`);
+    }
     return q.order("created_at", { ascending: false });
   };
 
@@ -216,6 +220,13 @@ export default function SecondBrainPage() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     toast({ title: "Audit log exported", description: `${rows.length} event(s) saved as CSV` });
+  };
+
+  const handleConfirmExportCsv = async () => {
+    if (!csvTargetItem) return;
+    setCsvConfirmOpen(false);
+    await exportAuditCsv(csvTargetItem);
+    setCsvTargetItem(null);
   };
 
   useEffect(() => {
@@ -1173,12 +1184,12 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
                                             Activity
                                           </p>
                                         </div>
-                                        <Button size="sm" variant="ghost"
-                                          className="h-6 px-1.5 text-[10px] gap-1"
-                                          onClick={() => exportAuditCsv(item)}
-                                          disabled={(itemTotalEvents[item.id] ?? 0) === 0}>
-                                          <Download className="h-3 w-3" /> CSV
-                                        </Button>
+                                         <Button size="sm" variant="ghost"
+                                           className="h-6 px-1.5 text-[10px] gap-1"
+                                           onClick={() => { setCsvTargetItem(item); setCsvConfirmOpen(true); }}
+                                           disabled={(itemTotalEvents[item.id] ?? 0) === 0}>
+                                           <Download className="h-3 w-3" /> CSV
+                                         </Button>
                                       </div>
 
                                       {/* Summary */}
