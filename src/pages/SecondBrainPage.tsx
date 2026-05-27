@@ -1164,16 +1164,70 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
 
                                     {/* Audit log */}
                                     <div className="pt-2 mt-1 border-t border-border/40">
-                                      <div className="flex items-center gap-1 mb-1.5">
-                                        <Activity className="h-3 w-3 text-muted-foreground" />
-                                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-                                          Activity
-                                        </p>
+                                      <div className="flex items-center justify-between gap-1 mb-1.5">
+                                        <div className="flex items-center gap-1">
+                                          <Activity className="h-3 w-3 text-muted-foreground" />
+                                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                                            Activity
+                                          </p>
+                                        </div>
+                                        <Button size="sm" variant="ghost"
+                                          className="h-6 px-1.5 text-[10px] gap-1"
+                                          onClick={() => exportAuditCsv(item)}
+                                          disabled={(itemTotalEvents[item.id] ?? 0) === 0}>
+                                          <Download className="h-3 w-3" /> CSV
+                                        </Button>
                                       </div>
+
+                                      {/* Summary */}
+                                      {(() => {
+                                        const total = itemTotalEvents[item.id] ?? 0;
+                                        const last = itemEvents[item.id]?.[0]?.created_at;
+                                        return (
+                                          <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-1.5 px-1.5 py-1 rounded bg-muted/40">
+                                            <span>{total} event{total === 1 ? "" : "s"}</span>
+                                            <span>{last ? `Last: ${new Date(last).toLocaleString()}` : "No activity"}</span>
+                                          </div>
+                                        );
+                                      })()}
+
+                                      {/* Filters */}
+                                      <div className="grid grid-cols-3 gap-1 mb-1.5">
+                                        <Select
+                                          value={getAuditFilter(item.id).type}
+                                          onValueChange={(v) => updateAuditFilter(item.id, { type: v })}>
+                                          <SelectTrigger className="h-6 text-[10px] px-1.5">
+                                            <SelectValue />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            <SelectItem value="all" className="text-xs">All events</SelectItem>
+                                            <SelectItem value="create" className="text-xs">Create</SelectItem>
+                                            <SelectItem value="update" className="text-xs">Update</SelectItem>
+                                            <SelectItem value="extend" className="text-xs">Extend</SelectItem>
+                                            <SelectItem value="copy" className="text-xs">Copy</SelectItem>
+                                            <SelectItem value="revoke" className="text-xs">Revoke</SelectItem>
+                                          </SelectContent>
+                                        </Select>
+                                        <Input
+                                          type="date"
+                                          value={getAuditFilter(item.id).from}
+                                          onChange={(e) => updateAuditFilter(item.id, { from: e.target.value })}
+                                          className="h-6 text-[10px] px-1.5"
+                                          title="From date"
+                                        />
+                                        <Input
+                                          type="date"
+                                          value={getAuditFilter(item.id).to}
+                                          onChange={(e) => updateAuditFilter(item.id, { to: e.target.value })}
+                                          className="h-6 text-[10px] px-1.5"
+                                          title="To date"
+                                        />
+                                      </div>
+
                                       {(itemEvents[item.id]?.length ?? 0) === 0 ? (
                                         <p className="text-[10px] text-muted-foreground italic">No events yet.</p>
                                       ) : (
-                                        <ul className="space-y-1 max-h-32 overflow-y-auto">
+                                        <ul className="space-y-1 max-h-40 overflow-y-auto pr-1">
                                           {itemEvents[item.id].map(ev => {
                                             const icon = ev.event_type === "create" ? "🔗"
                                               : ev.event_type === "update" ? "✏️"
@@ -1204,6 +1258,18 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
                                               </li>
                                             );
                                           })}
+                                          {itemHasMore[item.id] && (
+                                            <li>
+                                              <Button size="sm" variant="ghost"
+                                                className="h-6 w-full text-[10px] gap-1"
+                                                onClick={() => loadMoreEvents(item.id)}
+                                                disabled={itemLoadingEvents[item.id]}>
+                                                {itemLoadingEvents[item.id]
+                                                  ? <Loader2 className="h-3 w-3 animate-spin" />
+                                                  : <Plus className="h-3 w-3" />} Load more
+                                              </Button>
+                                            </li>
+                                          )}
                                         </ul>
                                       )}
                                     </div>
