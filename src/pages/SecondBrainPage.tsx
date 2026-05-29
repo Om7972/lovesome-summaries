@@ -11,6 +11,7 @@ import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
@@ -126,9 +127,25 @@ export default function SecondBrainPage() {
   const [itemLoadingEvents, setItemLoadingEvents] = useState<Record<string, boolean>>({});
   const [csvConfirmOpen, setCsvConfirmOpen] = useState(false);
   const [csvTargetItem, setCsvTargetItem] = useState<any>(null);
+  const [csvExporting, setCsvExporting] = useState(false);
+  const [csvError, setCsvError] = useState<string | null>(null);
+  // Event detail drawer
+  const [detailEvent, setDetailEvent] = useState<ShareEvent | null>(null);
   const AUDIT_PAGE_STEP = 20;
-  const getAuditFilter = (id: string): AuditFilter =>
-    itemFilters[id] || { type: "all", from: "", to: "", search: "" };
+  const filterStorageKey = (id: string) => `insightAuditFilter:${id}`;
+  const defaultAuditFilter = (): AuditFilter => ({ type: "all", from: "", to: "", search: "" });
+  const getAuditFilter = (id: string): AuditFilter => {
+    if (itemFilters[id]) return itemFilters[id];
+    if (typeof window !== "undefined") {
+      try {
+        const raw = localStorage.getItem(filterStorageKey(id));
+        if (raw) return { ...defaultAuditFilter(), ...JSON.parse(raw) };
+      } catch {}
+    }
+    return defaultAuditFilter();
+  };
+  const isFilterActive = (f: AuditFilter) =>
+    (f.type && f.type !== "all") || !!f.from || !!f.to || !!f.search?.trim();
 
   const setItemPending = (id: string, action: string | null) =>
     setItemPendingAction(prev => ({ ...prev, [id]: action }));
@@ -189,6 +206,18 @@ export default function SecondBrainPage() {
   const updateAuditFilter = (id: string, patch: Partial<AuditFilter>) => {
     const next = { ...getAuditFilter(id), ...patch };
     setItemFilters(prev => ({ ...prev, [id]: next }));
+    if (typeof window !== "undefined") {
+      try { localStorage.setItem(filterStorageKey(id), JSON.stringify(next)); } catch {}
+    }
+    loadShareEvents(id, { pageSize: AUDIT_PAGE_STEP, filter: next });
+  };
+
+  const clearAuditFilters = (id: string) => {
+    const next = defaultAuditFilter();
+    setItemFilters(prev => ({ ...prev, [id]: next }));
+    if (typeof window !== "undefined") {
+      try { localStorage.removeItem(filterStorageKey(id)); } catch {}
+    }
     loadShareEvents(id, { pageSize: AUDIT_PAGE_STEP, filter: next });
   };
 
@@ -199,34 +228,68 @@ export default function SecondBrainPage() {
 
   const exportAuditCsv = async (item: any) => {
     if (!user) return;
-    const filter = getAuditFilter(item.id);
-    const { data } = await buildEventsQuery(item.id, filter).range(0, 9999);
-    const rows = (data as any[]) || [];
-    const escape = (v: any) => {
-      const s = v == null ? "" : typeof v === "string" ? v : JSON.stringify(v);
-      return `"${s.replace(/"/g, '""')}"`;
-    };
-    const header = ["created_at", "event_type", "metadata"];
-    const csv = [header.join(",")]
-      .concat(rows.map(r => [r.created_at, r.event_type, r.metadata].map(escape).join(",")))
-      .join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `share-audit-${item.id.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    toast({ title: "Audit log exported", description: `${rows.length} event(s) saved as CSV` });
+    setCsvExporting(true);
+    setCsvError(null);
+    try {
+      const filter = getAuditFilter(item.id);
+      const { data, error } = await buildEventsQuery(item.id, filter).range(0, 9999);
+      if (error) throw error;
+      const rows = (data as any[]) || [];
+      // Collect all metadata keys for column expansion
+      const metaKeys = new Set<string>();
+      rows.forEach(r => {
+        if (r.metadata && typeof r.metadata === "object") {
+          Object.keys(r.metadata).forEach(k => metaKeys.add(k));
+        }
+      });
+      const sortedMetaKeys = Array.from(metaKeys).sort();
+      const escape = (v: any) => {
+        const s = v == null ? "" : typeof v === "string" ? v : typeof v === "object" ? JSON.stringify(v) : String(v);
+        return `"${s.replace(/"/g, '""')}"`;
+      };
+      const header = ["created_at", "event_type", "notes", ...sortedMetaKeys.map(k => `metadata.${k}`), "metadata_json"];
+      const csv = [header.join(",")]
+        .concat(rows.map(r => {
+          const meta = r.metadata || {};
+          const notes = meta.notes ?? meta.note ?? "";
+          const cells = [
+            r.created_at,
+            r.event_type,
+            notes,
+            ...sortedMetaKeys.map(k => meta[k]),
+            meta,
+          ];
+          return cells.map(escape).join(",");
+        }))
+        .join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `share-audit-${item.id.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast({ title: "Audit log exported", description: `${rows.length} event(s) saved as CSV` });
+      setCsvConfirmOpen(false);
+      setCsvTargetItem(null);
+    } catch (err: any) {
+      const msg = err?.message || "Unknown error";
+      setCsvError(msg);
+      toast({
+        title: "CSV export failed",
+        description: msg,
+        variant: "destructive",
+      });
+    } finally {
+      setCsvExporting(false);
+    }
   };
 
   const handleConfirmExportCsv = async () => {
     if (!csvTargetItem) return;
-    setCsvConfirmOpen(false);
     await exportAuditCsv(csvTargetItem);
-    setCsvTargetItem(null);
   };
 
   useEffect(() => {
@@ -1246,6 +1309,16 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
                                              title="To date"
                                            />
                                          </div>
+                                         {isFilterActive(getAuditFilter(item.id)) && (
+                                           <Button
+                                             size="sm"
+                                             variant="ghost"
+                                             className="h-6 w-full text-[10px] gap-1"
+                                             onClick={() => clearAuditFilters(item.id)}
+                                           >
+                                             <X className="h-3 w-3" /> Clear filters
+                                           </Button>
+                                         )}
                                        </div>
 
                                       {(itemEvents[item.id]?.length ?? 0) === 0 ? (
@@ -1273,12 +1346,18 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
                                               ? "link copied"
                                               : ev.event_type;
                                             return (
-                                              <li key={ev.id} className="flex items-start gap-1.5 text-[10px]">
-                                                <span>{icon}</span>
-                                                <span className="flex-1">
-                                                  <span className="text-foreground">{label}</span>
-                                                  <span className="text-muted-foreground"> · {new Date(ev.created_at).toLocaleString()}</span>
-                                                </span>
+                                              <li key={ev.id}>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => setDetailEvent(ev)}
+                                                  className="w-full flex items-start gap-1.5 text-[10px] text-left rounded px-1 py-0.5 hover:bg-muted/60 transition-colors"
+                                                >
+                                                  <span>{icon}</span>
+                                                  <span className="flex-1">
+                                                    <span className="text-foreground">{label}</span>
+                                                    <span className="text-muted-foreground"> · {new Date(ev.created_at).toLocaleString()}</span>
+                                                  </span>
+                                                </button>
                                               </li>
                                             );
                                           })}
@@ -1424,7 +1503,7 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
       </Dialog>
 
       {/* CSV Export Confirmation */}
-      <Dialog open={csvConfirmOpen} onOpenChange={setCsvConfirmOpen}>
+      <Dialog open={csvConfirmOpen} onOpenChange={(o) => { setCsvConfirmOpen(o); if (!o) { setCsvError(null); setCsvTargetItem(null); } }}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-sm">
@@ -1434,16 +1513,91 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
               Download {(itemTotalEvents[csvTargetItem?.id] ?? 0)} event{((itemTotalEvents[csvTargetItem?.id] ?? 0) === 1) ? "" : "s"} as a CSV file.
             </DialogDescription>
           </DialogHeader>
+          {csvError && (
+            <div className="text-[11px] text-destructive bg-destructive/10 border border-destructive/30 rounded px-2 py-1.5">
+              Export failed: {csvError}
+            </div>
+          )}
           <DialogFooter className="gap-2">
-            <Button size="sm" variant="ghost" onClick={() => { setCsvConfirmOpen(false); setCsvTargetItem(null); }}>
+            <Button size="sm" variant="ghost" disabled={csvExporting}
+              onClick={() => { setCsvConfirmOpen(false); setCsvTargetItem(null); setCsvError(null); }}>
               Cancel
             </Button>
-            <Button size="sm" onClick={handleConfirmExportCsv} className="gap-1.5">
-              <Download className="h-3.5 w-3.5" /> Export CSV
+            <Button size="sm" onClick={handleConfirmExportCsv} className="gap-1.5" disabled={csvExporting}>
+              {csvExporting
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : <Download className="h-3.5 w-3.5" />}
+              {csvError ? "Retry export" : "Export CSV"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Event detail side drawer */}
+      <Sheet open={!!detailEvent} onOpenChange={(o) => { if (!o) setDetailEvent(null); }}>
+        <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2 text-base capitalize">
+              <Activity className="h-4 w-4 text-primary" />
+              {detailEvent?.event_type} event
+            </SheetTitle>
+            <SheetDescription className="text-xs">
+              {detailEvent && new Date(detailEvent.created_at).toLocaleString()}
+            </SheetDescription>
+          </SheetHeader>
+          {detailEvent && (
+            <div className="mt-4 space-y-4">
+              {(() => {
+                const meta = (detailEvent.metadata && typeof detailEvent.metadata === "object") ? detailEvent.metadata : {};
+                const notes = meta.notes ?? meta.note ?? "";
+                const entries = Object.entries(meta).filter(([k]) => k !== "notes" && k !== "note");
+                return (
+                  <>
+                    {notes ? (
+                      <div>
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Notes</p>
+                        <p className="text-sm whitespace-pre-wrap rounded-md border bg-muted/40 p-2">{String(notes)}</p>
+                      </div>
+                    ) : (
+                      <div>
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Notes</p>
+                        <p className="text-xs italic text-muted-foreground">No notes recorded for this event.</p>
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Metadata</p>
+                      {entries.length === 0 ? (
+                        <p className="text-xs italic text-muted-foreground">No additional metadata.</p>
+                      ) : (
+                        <dl className="rounded-md border divide-y">
+                          {entries.map(([k, v]) => (
+                            <div key={k} className="grid grid-cols-[1fr,2fr] gap-2 px-2 py-1.5 text-xs">
+                              <dt className="font-medium text-muted-foreground truncate">{k}</dt>
+                              <dd className="break-words font-mono text-[11px]">
+                                {v == null
+                                  ? <span className="italic text-muted-foreground">null</span>
+                                  : typeof v === "object"
+                                    ? JSON.stringify(v, null, 2)
+                                    : String(v)}
+                              </dd>
+                            </div>
+                          ))}
+                        </dl>
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Raw JSON</p>
+                      <pre className="text-[10px] rounded-md border bg-muted/40 p-2 overflow-x-auto">
+{JSON.stringify(detailEvent.metadata ?? {}, null, 2)}
+                      </pre>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
