@@ -11,6 +11,7 @@ import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
@@ -126,9 +127,25 @@ export default function SecondBrainPage() {
   const [itemLoadingEvents, setItemLoadingEvents] = useState<Record<string, boolean>>({});
   const [csvConfirmOpen, setCsvConfirmOpen] = useState(false);
   const [csvTargetItem, setCsvTargetItem] = useState<any>(null);
+  const [csvExporting, setCsvExporting] = useState(false);
+  const [csvError, setCsvError] = useState<string | null>(null);
+  // Event detail drawer
+  const [detailEvent, setDetailEvent] = useState<ShareEvent | null>(null);
   const AUDIT_PAGE_STEP = 20;
-  const getAuditFilter = (id: string): AuditFilter =>
-    itemFilters[id] || { type: "all", from: "", to: "", search: "" };
+  const filterStorageKey = (id: string) => `insightAuditFilter:${id}`;
+  const defaultAuditFilter = (): AuditFilter => ({ type: "all", from: "", to: "", search: "" });
+  const getAuditFilter = (id: string): AuditFilter => {
+    if (itemFilters[id]) return itemFilters[id];
+    if (typeof window !== "undefined") {
+      try {
+        const raw = localStorage.getItem(filterStorageKey(id));
+        if (raw) return { ...defaultAuditFilter(), ...JSON.parse(raw) };
+      } catch {}
+    }
+    return defaultAuditFilter();
+  };
+  const isFilterActive = (f: AuditFilter) =>
+    (f.type && f.type !== "all") || !!f.from || !!f.to || !!f.search?.trim();
 
   const setItemPending = (id: string, action: string | null) =>
     setItemPendingAction(prev => ({ ...prev, [id]: action }));
@@ -199,34 +216,68 @@ export default function SecondBrainPage() {
 
   const exportAuditCsv = async (item: any) => {
     if (!user) return;
-    const filter = getAuditFilter(item.id);
-    const { data } = await buildEventsQuery(item.id, filter).range(0, 9999);
-    const rows = (data as any[]) || [];
-    const escape = (v: any) => {
-      const s = v == null ? "" : typeof v === "string" ? v : JSON.stringify(v);
-      return `"${s.replace(/"/g, '""')}"`;
-    };
-    const header = ["created_at", "event_type", "metadata"];
-    const csv = [header.join(",")]
-      .concat(rows.map(r => [r.created_at, r.event_type, r.metadata].map(escape).join(",")))
-      .join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `share-audit-${item.id.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    toast({ title: "Audit log exported", description: `${rows.length} event(s) saved as CSV` });
+    setCsvExporting(true);
+    setCsvError(null);
+    try {
+      const filter = getAuditFilter(item.id);
+      const { data, error } = await buildEventsQuery(item.id, filter).range(0, 9999);
+      if (error) throw error;
+      const rows = (data as any[]) || [];
+      // Collect all metadata keys for column expansion
+      const metaKeys = new Set<string>();
+      rows.forEach(r => {
+        if (r.metadata && typeof r.metadata === "object") {
+          Object.keys(r.metadata).forEach(k => metaKeys.add(k));
+        }
+      });
+      const sortedMetaKeys = Array.from(metaKeys).sort();
+      const escape = (v: any) => {
+        const s = v == null ? "" : typeof v === "string" ? v : typeof v === "object" ? JSON.stringify(v) : String(v);
+        return `"${s.replace(/"/g, '""')}"`;
+      };
+      const header = ["created_at", "event_type", "notes", ...sortedMetaKeys.map(k => `metadata.${k}`), "metadata_json"];
+      const csv = [header.join(",")]
+        .concat(rows.map(r => {
+          const meta = r.metadata || {};
+          const notes = meta.notes ?? meta.note ?? "";
+          const cells = [
+            r.created_at,
+            r.event_type,
+            notes,
+            ...sortedMetaKeys.map(k => meta[k]),
+            meta,
+          ];
+          return cells.map(escape).join(",");
+        }))
+        .join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `share-audit-${item.id.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast({ title: "Audit log exported", description: `${rows.length} event(s) saved as CSV` });
+      setCsvConfirmOpen(false);
+      setCsvTargetItem(null);
+    } catch (err: any) {
+      const msg = err?.message || "Unknown error";
+      setCsvError(msg);
+      toast({
+        title: "CSV export failed",
+        description: msg,
+        variant: "destructive",
+      });
+    } finally {
+      setCsvExporting(false);
+    }
   };
 
   const handleConfirmExportCsv = async () => {
     if (!csvTargetItem) return;
-    setCsvConfirmOpen(false);
     await exportAuditCsv(csvTargetItem);
-    setCsvTargetItem(null);
   };
 
   useEffect(() => {
