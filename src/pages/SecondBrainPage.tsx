@@ -206,6 +206,18 @@ export default function SecondBrainPage() {
   const updateAuditFilter = (id: string, patch: Partial<AuditFilter>) => {
     const next = { ...getAuditFilter(id), ...patch };
     setItemFilters(prev => ({ ...prev, [id]: next }));
+    if (typeof window !== "undefined") {
+      try { localStorage.setItem(filterStorageKey(id), JSON.stringify(next)); } catch {}
+    }
+    loadShareEvents(id, { pageSize: AUDIT_PAGE_STEP, filter: next });
+  };
+
+  const clearAuditFilters = (id: string) => {
+    const next = defaultAuditFilter();
+    setItemFilters(prev => ({ ...prev, [id]: next }));
+    if (typeof window !== "undefined") {
+      try { localStorage.removeItem(filterStorageKey(id)); } catch {}
+    }
     loadShareEvents(id, { pageSize: AUDIT_PAGE_STEP, filter: next });
   };
 
