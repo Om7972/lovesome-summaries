@@ -1503,7 +1503,7 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
       </Dialog>
 
       {/* CSV Export Confirmation */}
-      <Dialog open={csvConfirmOpen} onOpenChange={setCsvConfirmOpen}>
+      <Dialog open={csvConfirmOpen} onOpenChange={(o) => { setCsvConfirmOpen(o); if (!o) { setCsvError(null); setCsvTargetItem(null); } }}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-sm">
@@ -1513,16 +1513,91 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
               Download {(itemTotalEvents[csvTargetItem?.id] ?? 0)} event{((itemTotalEvents[csvTargetItem?.id] ?? 0) === 1) ? "" : "s"} as a CSV file.
             </DialogDescription>
           </DialogHeader>
+          {csvError && (
+            <div className="text-[11px] text-destructive bg-destructive/10 border border-destructive/30 rounded px-2 py-1.5">
+              Export failed: {csvError}
+            </div>
+          )}
           <DialogFooter className="gap-2">
-            <Button size="sm" variant="ghost" onClick={() => { setCsvConfirmOpen(false); setCsvTargetItem(null); }}>
+            <Button size="sm" variant="ghost" disabled={csvExporting}
+              onClick={() => { setCsvConfirmOpen(false); setCsvTargetItem(null); setCsvError(null); }}>
               Cancel
             </Button>
-            <Button size="sm" onClick={handleConfirmExportCsv} className="gap-1.5">
-              <Download className="h-3.5 w-3.5" /> Export CSV
+            <Button size="sm" onClick={handleConfirmExportCsv} className="gap-1.5" disabled={csvExporting}>
+              {csvExporting
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : <Download className="h-3.5 w-3.5" />}
+              {csvError ? "Retry export" : "Export CSV"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Event detail side drawer */}
+      <Sheet open={!!detailEvent} onOpenChange={(o) => { if (!o) setDetailEvent(null); }}>
+        <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2 text-base capitalize">
+              <Activity className="h-4 w-4 text-primary" />
+              {detailEvent?.event_type} event
+            </SheetTitle>
+            <SheetDescription className="text-xs">
+              {detailEvent && new Date(detailEvent.created_at).toLocaleString()}
+            </SheetDescription>
+          </SheetHeader>
+          {detailEvent && (
+            <div className="mt-4 space-y-4">
+              {(() => {
+                const meta = (detailEvent.metadata && typeof detailEvent.metadata === "object") ? detailEvent.metadata : {};
+                const notes = meta.notes ?? meta.note ?? "";
+                const entries = Object.entries(meta).filter(([k]) => k !== "notes" && k !== "note");
+                return (
+                  <>
+                    {notes ? (
+                      <div>
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Notes</p>
+                        <p className="text-sm whitespace-pre-wrap rounded-md border bg-muted/40 p-2">{String(notes)}</p>
+                      </div>
+                    ) : (
+                      <div>
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Notes</p>
+                        <p className="text-xs italic text-muted-foreground">No notes recorded for this event.</p>
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Metadata</p>
+                      {entries.length === 0 ? (
+                        <p className="text-xs italic text-muted-foreground">No additional metadata.</p>
+                      ) : (
+                        <dl className="rounded-md border divide-y">
+                          {entries.map(([k, v]) => (
+                            <div key={k} className="grid grid-cols-[1fr,2fr] gap-2 px-2 py-1.5 text-xs">
+                              <dt className="font-medium text-muted-foreground truncate">{k}</dt>
+                              <dd className="break-words font-mono text-[11px]">
+                                {v == null
+                                  ? <span className="italic text-muted-foreground">null</span>
+                                  : typeof v === "object"
+                                    ? JSON.stringify(v, null, 2)
+                                    : String(v)}
+                              </dd>
+                            </div>
+                          ))}
+                        </dl>
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Raw JSON</p>
+                      <pre className="text-[10px] rounded-md border bg-muted/40 p-2 overflow-x-auto">
+{JSON.stringify(detailEvent.metadata ?? {}, null, 2)}
+                      </pre>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
