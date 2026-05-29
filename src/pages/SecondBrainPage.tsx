@@ -1309,6 +1309,16 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
                                              title="To date"
                                            />
                                          </div>
+                                         {isFilterActive(getAuditFilter(item.id)) && (
+                                           <Button
+                                             size="sm"
+                                             variant="ghost"
+                                             className="h-6 w-full text-[10px] gap-1"
+                                             onClick={() => clearAuditFilters(item.id)}
+                                           >
+                                             <X className="h-3 w-3" /> Clear filters
+                                           </Button>
+                                         )}
                                        </div>
 
                                       {(itemEvents[item.id]?.length ?? 0) === 0 ? (
@@ -1336,12 +1346,18 @@ When referencing a document, wrap its title in **bold** so I can identify it.`;
                                               ? "link copied"
                                               : ev.event_type;
                                             return (
-                                              <li key={ev.id} className="flex items-start gap-1.5 text-[10px]">
-                                                <span>{icon}</span>
-                                                <span className="flex-1">
-                                                  <span className="text-foreground">{label}</span>
-                                                  <span className="text-muted-foreground"> · {new Date(ev.created_at).toLocaleString()}</span>
-                                                </span>
+                                              <li key={ev.id}>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => setDetailEvent(ev)}
+                                                  className="w-full flex items-start gap-1.5 text-[10px] text-left rounded px-1 py-0.5 hover:bg-muted/60 transition-colors"
+                                                >
+                                                  <span>{icon}</span>
+                                                  <span className="flex-1">
+                                                    <span className="text-foreground">{label}</span>
+                                                    <span className="text-muted-foreground"> · {new Date(ev.created_at).toLocaleString()}</span>
+                                                  </span>
+                                                </button>
                                               </li>
                                             );
                                           })}
