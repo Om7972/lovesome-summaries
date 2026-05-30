@@ -303,6 +303,162 @@ async function tryWatchPageExtraction(videoId: string) {
   return null;
 }
 
+async function tryInnertubePlayer(videoId: string) {
+  console.log("[youtube-transcript] Method 3: Innertube player API...");
+
+  // Mimic the ANDROID/WEB client – often bypasses cloud-IP blocks on /watch
+  const clients = [
+    {
+      name: "ANDROID",
+      context: {
+        client: {
+          clientName: "ANDROID",
+          clientVersion: "19.09.37",
+          androidSdkVersion: 30,
+          hl: "en",
+          gl: "US",
+          userAgent: "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
+        },
+      },
+      userAgent: "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
+    },
+    {
+      name: "WEB",
+      context: {
+        client: {
+          clientName: "WEB",
+          clientVersion: "2.20240101.00.00",
+          hl: "en",
+          gl: "US",
+        },
+      },
+      userAgent:
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    },
+  ];
+
+  for (const client of clients) {
+    try {
+      const res = await fetch(
+        "https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent": client.userAgent,
+            "Accept-Language": "en-US,en;q=0.9",
+          },
+          body: JSON.stringify({ context: client.context, videoId }),
+        },
+      );
+
+      if (!res.ok) {
+        console.log(`[youtube-transcript] Innertube ${client.name} HTTP ${res.status}`);
+        continue;
+      }
+
+      const data = await res.json();
+      const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
+      if (!tracks.length) {
+        console.log(`[youtube-transcript] Innertube ${client.name}: no tracks`);
+        continue;
+      }
+
+      const englishTrack = tracks.find(
+        (t: any) => t.languageCode === "en" || t.languageCode?.startsWith("en"),
+      );
+      const ordered = englishTrack
+        ? [englishTrack, ...tracks.filter((t: any) => t !== englishTrack)]
+        : tracks;
+
+      for (const track of ordered) {
+        if (!track.baseUrl) continue;
+        for (const format of ["json3", "srv1"]) {
+          try {
+            const url = new URL(track.baseUrl);
+            url.searchParams.set("fmt", format);
+            const cr = await fetch(url.toString(), {
+              headers: { "Accept-Encoding": "identity", "User-Agent": client.userAgent },
+            });
+            if (!cr.ok) continue;
+            const body = await cr.text();
+            if (body.length < 10) continue;
+
+            if (format === "json3") {
+              try {
+                const json = JSON.parse(body);
+                const payload = buildTranscriptPayload(
+                  (json.events ?? []).flatMap((event: any) => {
+                    if (!event?.segs) return [];
+                    const text = event.segs.map((s: any) => s.utf8 || "").join("").trim();
+                    if (!text || text === "\n") return [];
+                    return [{
+                      time: formatTime((event.tStartMs || 0) / 1000),
+                      text: decodeHTMLEntities(text),
+                    }];
+                  }),
+                );
+                if (payload) {
+                  console.log(`[youtube-transcript] Innertube ${client.name} JSON3 success: ${payload.timestamps.length} segments`);
+                  return payload;
+                }
+              } catch { /* fall through */ }
+            }
+
+            const xml = parseXmlTranscript(body);
+            if (xml?.length) {
+              const payload = buildTranscriptPayload(xml);
+              if (payload) {
+                console.log(`[youtube-transcript] Innertube ${client.name} XML success: ${payload.timestamps.length} segments`);
+                return payload;
+              }
+            }
+          } catch { /* try next format */ }
+        }
+      }
+    } catch (error) {
+      console.warn(`[youtube-transcript] Innertube ${client.name} crashed:`, error);
+    }
+  }
+
+  return null;
+}
+
+async function tryJinaReader(videoId: string) {
+  console.log("[youtube-transcript] Method 4: Jina Reader proxy...");
+  try {
+    const res = await fetch(`https://r.jina.ai/https://www.youtube.com/watch?v=${videoId}`, {
+      headers: {
+        "Accept": "text/plain",
+        "X-Return-Format": "text",
+      },
+    });
+    if (!res.ok) {
+      console.log(`[youtube-transcript] Jina HTTP ${res.status}`);
+      return null;
+    }
+    const body = await res.text();
+    if (!body || body.length < 200) return null;
+
+    // Strip Jina markdown header lines so we keep only the meaningful content
+    const cleaned = body
+      .replace(/^Title:.*$/im, "")
+      .replace(/^URL Source:.*$/im, "")
+      .replace(/^Markdown Content:.*$/im, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+
+    if (cleaned.length < 200) return null;
+
+    const text = cleaned.substring(0, 50000);
+    console.log(`[youtube-transcript] Jina success: ${text.length} chars`);
+    return { text, timestamps: [] as TranscriptSegment[] };
+  } catch (error) {
+    console.warn("[youtube-transcript] Jina Reader failed:", error);
+    return null;
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -368,6 +524,20 @@ serve(async (req) => {
       const elapsed = Date.now() - startTime;
       console.log(`[youtube-transcript] Success in ${elapsed}ms via watch page extraction`);
       return jsonResponse({ success: true, videoId, ...watchPageTranscript });
+    }
+
+    const innertubeTranscript = await tryInnertubePlayer(videoId);
+    if (innertubeTranscript) {
+      const elapsed = Date.now() - startTime;
+      console.log(`[youtube-transcript] Success in ${elapsed}ms via Innertube`);
+      return jsonResponse({ success: true, videoId, ...innertubeTranscript });
+    }
+
+    const jinaTranscript = await tryJinaReader(videoId);
+    if (jinaTranscript) {
+      const elapsed = Date.now() - startTime;
+      console.log(`[youtube-transcript] Success in ${elapsed}ms via Jina Reader`);
+      return jsonResponse({ success: true, videoId, source: "jina", ...jinaTranscript });
     }
 
     const availableLanguages = Array.from(new Set(captionTracks.map((track) => track.language)));
