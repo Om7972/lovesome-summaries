@@ -590,6 +590,11 @@ serve(async (req) => {
     const elapsed = Date.now() - startTime;
     console.error(`[youtube-transcript] Failed after ${elapsed}ms:`, error);
     const message = error instanceof Error ? error.message : "Unknown error";
-    return errorResponse(message, 500);
+    // Soft-fail with 200 so the client never crashes — surface a retry signal instead.
+    return softFailureResponse(
+      `We hit an unexpected issue extracting this transcript: ${message}. Please retry or upload the video directly.`,
+      "SERVICE_FAILED",
+      { fallback: true, retryable: true },
+    );
   }
 });
