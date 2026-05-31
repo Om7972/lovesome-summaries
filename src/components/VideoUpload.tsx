@@ -17,10 +17,31 @@ interface VideoUploadProps {
 }
 
 function extractYouTubeId(url: string): string | null {
-  const match = url.match(
-    /(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/
-  );
-  return match ? match[1] : null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) return trimmed;
+  try {
+    const u = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
+    const host = u.hostname.replace(/^www\./, "");
+    if (host === "youtu.be") {
+      const id = u.pathname.split("/").filter(Boolean)[0];
+      if (id && /^[a-zA-Z0-9_-]{11}$/.test(id)) return id;
+    }
+    if (host.endsWith("youtube.com") || host.endsWith("youtube-nocookie.com")) {
+      const v = u.searchParams.get("v");
+      if (v && /^[a-zA-Z0-9_-]{11}$/.test(v)) return v;
+      const segs = u.pathname.split("/").filter(Boolean);
+      const keys = ["embed", "shorts", "v", "live"];
+      for (let i = 0; i < segs.length - 1; i++) {
+        if (keys.includes(segs[i]) && /^[a-zA-Z0-9_-]{11}$/.test(segs[i + 1])) {
+          return segs[i + 1];
+        }
+      }
+    }
+  } catch { /* ignore */ }
+  const m = trimmed.match(/[?&]v=([a-zA-Z0-9_-]{11})/) ||
+            trimmed.match(/(?:embed|shorts|v|live)\/([a-zA-Z0-9_-]{11})/);
+  return m ? m[1] : null;
 }
 
 export const VideoUpload = ({
@@ -158,6 +179,18 @@ export const VideoUpload = ({
                     className="mt-4 w-full"
                   >
                     Switch to upload
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      onClearBlocked?.();
+                      if (youtubeUrl.trim()) onYouTubeSubmit(youtubeUrl.trim());
+                    }}
+                    variant="ghost"
+                    size="sm"
+                    className="mt-2 w-full"
+                    disabled={isProcessing || !youtubeUrl.trim()}
+                  >
+                    Retry transcript fetch
                   </Button>
                 </motion.div>
               )}
