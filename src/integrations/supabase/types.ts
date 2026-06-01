@@ -447,6 +447,42 @@ export type Database = {
         }
         Relationships: []
       }
+      transcript_cache: {
+        Row: {
+          created_at: string
+          duration_seconds: number | null
+          language: string | null
+          quality_score: Json | null
+          source: string | null
+          text: string
+          timestamps: Json
+          updated_at: string
+          video_id: string
+        }
+        Insert: {
+          created_at?: string
+          duration_seconds?: number | null
+          language?: string | null
+          quality_score?: Json | null
+          source?: string | null
+          text: string
+          timestamps?: Json
+          updated_at?: string
+          video_id: string
+        }
+        Update: {
+          created_at?: string
+          duration_seconds?: number | null
+          language?: string | null
+          quality_score?: Json | null
+          source?: string | null
+          text?: string
+          timestamps?: Json
+          updated_at?: string
+          video_id?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           id: string
