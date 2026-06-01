@@ -18,6 +18,23 @@ type CaptionTrackInfo = {
   name: string | null;
 };
 
+type QualityScore = {
+  coverage: number;        // 0..1 — fraction of expected duration covered
+  durationMatch: number;   // 0..1 — how close transcript span is to video duration
+  missingSegments: number; // estimated count of gaps > 30s
+  segmentCount: number;
+  rating: "excellent" | "good" | "fair" | "poor";
+};
+
+type TranscriptPayload = {
+  text: string;
+  timestamps: TranscriptSegment[];
+  source?: string;
+  quality?: QualityScore;
+  durationSeconds?: number;
+  language?: string;
+};
+
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
