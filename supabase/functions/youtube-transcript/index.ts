@@ -56,7 +56,7 @@ function softFailureResponse(
   return jsonResponse({ success: false, code, message, ...details }, 200);
 }
 
-function extractVideoId(url: string): string | null {
+export function extractVideoId(url: string): string | null {
   const sanitized = url.trim().substring(0, 500);
 
   // Bare 11-char video id
@@ -101,6 +101,124 @@ function extractVideoId(url: string): string | null {
   }
 
   return null;
+}
+
+export function extractPlaylistId(url: string): string | null {
+  const sanitized = url.trim().substring(0, 500);
+  try {
+    const withScheme = /^https?:\/\//i.test(sanitized) ? sanitized : `https://${sanitized}`;
+    const u = new URL(withScheme);
+    const list = u.searchParams.get("list");
+    if (list && /^[A-Za-z0-9_-]{10,}$/.test(list)) return list;
+  } catch { /* ignore */ }
+  const m = sanitized.match(/[?&]list=([A-Za-z0-9_-]{10,})/);
+  return m ? m[1] : null;
+}
+
+function parseISO8601Duration(iso: string | null | undefined): number {
+  if (!iso) return 0;
+  const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!m) return 0;
+  return (parseInt(m[1] || "0", 10) * 3600) + (parseInt(m[2] || "0", 10) * 60) + parseInt(m[3] || "0", 10);
+}
+
+function timeToSeconds(t: string): number {
+  const parts = t.split(":").map((p) => parseInt(p, 10));
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return 0;
+}
+
+function computeQualityScore(
+  segments: TranscriptSegment[],
+  videoDurationSeconds: number,
+): QualityScore {
+  const segmentCount = segments.length;
+  if (segmentCount === 0) {
+    return { coverage: 0, durationMatch: 0, missingSegments: 0, segmentCount: 0, rating: "poor" };
+  }
+
+  const times = segments.map((s) => timeToSeconds(s.time)).sort((a, b) => a - b);
+  const span = times[times.length - 1] - times[0];
+
+  // Count gaps > 30s as missing segments
+  let missing = 0;
+  for (let i = 1; i < times.length; i++) {
+    if (times[i] - times[i - 1] > 30) missing++;
+  }
+
+  let coverage = 1;
+  let durationMatch = 1;
+  if (videoDurationSeconds > 0) {
+    coverage = Math.min(1, span / videoDurationSeconds);
+    durationMatch = 1 - Math.min(1, Math.abs(videoDurationSeconds - span) / videoDurationSeconds);
+  } else {
+    // No duration info: estimate based on segment density
+    coverage = Math.min(1, segmentCount / 100);
+    durationMatch = 0.75;
+  }
+
+  const overall = (coverage * 0.5) + (durationMatch * 0.35) + (Math.max(0, 1 - missing / 20) * 0.15);
+  const rating: QualityScore["rating"] =
+    overall >= 0.85 ? "excellent" :
+    overall >= 0.65 ? "good" :
+    overall >= 0.4 ? "fair" : "poor";
+
+  return {
+    coverage: Number(coverage.toFixed(2)),
+    durationMatch: Number(durationMatch.toFixed(2)),
+    missingSegments: missing,
+    segmentCount,
+    rating,
+  };
+}
+
+async function fetchVideoMetadata(videoId: string): Promise<{ title: string; durationSeconds: number } | null> {
+  const apiKey = Deno.env.get("YOUTUBE_API_KEY");
+  if (!apiKey) return null;
+  try {
+    const res = await fetch(
+      `https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails&id=${videoId}&key=${apiKey}`,
+    );
+    if (!res.ok) { await res.text(); return null; }
+    const data = await res.json();
+    const item = data?.items?.[0];
+    if (!item) return null;
+    return {
+      title: item.snippet?.title ?? "",
+      durationSeconds: parseISO8601Duration(item.contentDetails?.duration),
+    };
+  } catch { return null; }
+}
+
+async function fetchPlaylistVideoIds(playlistId: string, max = 25): Promise<Array<{ id: string; title: string }>> {
+  const apiKey = Deno.env.get("YOUTUBE_API_KEY");
+  if (!apiKey) return [];
+  const out: Array<{ id: string; title: string }> = [];
+  let pageToken = "";
+  try {
+    while (out.length < max) {
+      const url = new URL("https://www.googleapis.com/youtube/v3/playlistItems");
+      url.searchParams.set("part", "snippet");
+      url.searchParams.set("maxResults", "50");
+      url.searchParams.set("playlistId", playlistId);
+      url.searchParams.set("key", apiKey);
+      if (pageToken) url.searchParams.set("pageToken", pageToken);
+      const res = await fetch(url.toString());
+      if (!res.ok) { await res.text(); break; }
+      const data = await res.json();
+      for (const item of data.items ?? []) {
+        const id = item?.snippet?.resourceId?.videoId;
+        if (id) out.push({ id, title: item?.snippet?.title ?? "" });
+        if (out.length >= max) break;
+      }
+      pageToken = data.nextPageToken ?? "";
+      if (!pageToken) break;
+    }
+  } catch (error) {
+    console.warn("[youtube-transcript] Playlist fetch failed:", error);
+  }
+  return out;
 }
 
 function formatTime(seconds: number): string {
