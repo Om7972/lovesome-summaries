@@ -1,5 +1,5 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { extractVideoId, extractPlaylistId } from "./index.ts";
+import { extractVideoId, extractPlaylistId } from "./url-parser.ts";
 
 Deno.test("extractVideoId: bare 11-char ID", () => {
   assertEquals(extractVideoId("dQw4w9WgXcQ"), "dQw4w9WgXcQ");
