@@ -636,91 +636,41 @@ serve(async (req) => {
     const payload = await req.json().catch(() => null);
     const youtubeUrl = payload?.youtubeUrl;
     const userId = payload?.userId;
+    const stream = payload?.stream === true;
 
     if (!youtubeUrl || typeof youtubeUrl !== "string") {
       return softFailureResponse("YouTube URL is required.", "MISSING_URL");
     }
 
+    if (stream) {
+      return handleStream(youtubeUrl, userId, startTime);
+    }
+
     const videoId = extractVideoId(youtubeUrl);
+    const playlistId = extractPlaylistId(youtubeUrl);
+
+    // Playlist mode: process up to 25 videos and return a combined transcript
+    if (playlistId && !videoId) {
+      return await processPlaylist(playlistId, userId, startTime);
+    }
+    if (playlistId && videoId) {
+      // URL has both v= and list= — prefer single video but include playlist flag
+      console.log(`[youtube-transcript] URL has playlist (${playlistId}) and video (${videoId}); using single video`);
+    }
+
     if (!videoId) {
       return softFailureResponse("Invalid YouTube URL.", "INVALID_URL");
     }
 
     console.log(`[youtube-transcript] Processing video: ${videoId}`);
 
-    if (userId) {
-      try {
-        const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-        const { data: cached } = await supabase
-          .from("summaries")
-          .select("summary_text, extracted_text")
-          .eq("user_id", userId)
-          .eq("video_id", videoId)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        if (cached?.summary_text) {
-          console.log("[youtube-transcript] Cache hit");
-          return jsonResponse({
-            success: true,
-            text: cached.extracted_text,
-            timestamps: [],
-            videoId,
-            cached: true,
-            cachedSummary: cached.summary_text,
-          });
-        }
-      } catch (error) {
-        console.warn("[youtube-transcript] Cache check failed:", error);
-      }
+    const result = await processSingleVideo(videoId, userId);
+    const elapsed = Date.now() - startTime;
+    if (result.ok) {
+      console.log(`[youtube-transcript] Success in ${elapsed}ms via ${result.payload.source}`);
+      return jsonResponse({ success: true, videoId, ...result.payload });
     }
-
-    const captionTracks = await fetchCaptionTrackMetadata(videoId);
-
-    const packageTranscript = await tryYoutubeTranscriptPackage(videoId, captionTracks);
-    if (packageTranscript) {
-      const elapsed = Date.now() - startTime;
-      console.log(`[youtube-transcript] Success in ${elapsed}ms via package`);
-      return jsonResponse({ success: true, videoId, ...packageTranscript });
-    }
-
-    const watchPageTranscript = await tryWatchPageExtraction(videoId);
-    if (watchPageTranscript) {
-      const elapsed = Date.now() - startTime;
-      console.log(`[youtube-transcript] Success in ${elapsed}ms via watch page extraction`);
-      return jsonResponse({ success: true, videoId, ...watchPageTranscript });
-    }
-
-    const innertubeTranscript = await tryInnertubePlayer(videoId);
-    if (innertubeTranscript) {
-      const elapsed = Date.now() - startTime;
-      console.log(`[youtube-transcript] Success in ${elapsed}ms via Innertube`);
-      return jsonResponse({ success: true, videoId, ...innertubeTranscript });
-    }
-
-    const jinaTranscript = await tryJinaReader(videoId);
-    if (jinaTranscript) {
-      const elapsed = Date.now() - startTime;
-      console.log(`[youtube-transcript] Success in ${elapsed}ms via Jina Reader`);
-      return jsonResponse({ success: true, videoId, source: "jina", ...jinaTranscript });
-    }
-
-    const availableLanguages = Array.from(new Set(captionTracks.map((track) => track.language)));
-
-    if (availableLanguages.length > 0) {
-      return softFailureResponse(
-        `Captions exist for this video (${availableLanguages.join(", ")}), but YouTube blocked transcript download from the server. Please upload the video directly instead.`,
-        "CAPTIONS_BLOCKED",
-        { videoId, availableLanguages },
-      );
-    }
-
-    return softFailureResponse(
-      "No captions are available for this video. Please choose a video with captions or upload the video directly.",
-      "CAPTIONS_UNAVAILABLE",
-      { videoId, availableLanguages: [] },
-    );
+    return softFailureResponse(result.message, result.code, { videoId, ...result.extra });
   } catch (error) {
     const elapsed = Date.now() - startTime;
     console.error(`[youtube-transcript] Failed after ${elapsed}ms:`, error);
@@ -733,3 +683,275 @@ serve(async (req) => {
     );
   }
 });
+
+// ---------- Orchestration helpers ----------
+
+type ProcessResult =
+  | { ok: true; payload: TranscriptPayload & { cached?: boolean } }
+  | { ok: false; code: string; message: string; extra?: Record<string, unknown> };
+
+async function readCache(videoId: string): Promise<TranscriptPayload | null> {
+  try {
+    const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const { data } = await supabase
+      .from("transcript_cache")
+      .select("text, timestamps, quality_score, source, duration_seconds, language")
+      .eq("video_id", videoId)
+      .maybeSingle();
+    if (data?.text) {
+      return {
+        text: data.text,
+        timestamps: (data.timestamps as TranscriptSegment[]) ?? [],
+        quality: data.quality_score as QualityScore | undefined,
+        source: data.source ?? "cache",
+        durationSeconds: data.duration_seconds ?? undefined,
+        language: data.language ?? undefined,
+      };
+    }
+  } catch (error) {
+    console.warn("[youtube-transcript] Cache read failed:", error);
+  }
+  return null;
+}
+
+async function writeCache(videoId: string, payload: TranscriptPayload) {
+  try {
+    const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    await supabase.from("transcript_cache").upsert({
+      video_id: videoId,
+      text: payload.text,
+      timestamps: payload.timestamps as unknown as Record<string, unknown>,
+      quality_score: payload.quality as unknown as Record<string, unknown>,
+      source: payload.source,
+      duration_seconds: payload.durationSeconds,
+      language: payload.language,
+      updated_at: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.warn("[youtube-transcript] Cache write failed:", error);
+  }
+}
+
+async function processSingleVideo(
+  videoId: string,
+  _userId?: string,
+  onProgress?: (step: string, status: "start" | "success" | "fail", info?: Record<string, unknown>) => void,
+): Promise<ProcessResult> {
+  onProgress?.("cache", "start");
+  const cached = await readCache(videoId);
+  if (cached) {
+    onProgress?.("cache", "success", { source: cached.source });
+    return { ok: true, payload: { ...cached, cached: true } };
+  }
+  onProgress?.("cache", "fail");
+
+  onProgress?.("metadata", "start");
+  const [meta, captionTracks] = await Promise.all([
+    fetchVideoMetadata(videoId),
+    fetchCaptionTrackMetadata(videoId),
+  ]);
+  onProgress?.("metadata", "success", {
+    durationSeconds: meta?.durationSeconds ?? 0,
+    languages: captionTracks.map((t) => t.language),
+  });
+
+  const steps: Array<{ id: string; run: () => Promise<{ text: string; timestamps: TranscriptSegment[] } | null> }> = [
+    { id: "package", run: () => tryYoutubeTranscriptPackage(videoId, captionTracks) },
+    { id: "watch-page", run: () => tryWatchPageExtraction(videoId) },
+    { id: "innertube", run: () => tryInnertubePlayer(videoId) },
+    { id: "jina", run: () => tryJinaReader(videoId) },
+  ];
+
+  for (const step of steps) {
+    onProgress?.(step.id, "start");
+    try {
+      const result = await step.run();
+      if (result) {
+        const quality = computeQualityScore(result.timestamps, meta?.durationSeconds ?? 0);
+        const payload: TranscriptPayload = {
+          text: result.text,
+          timestamps: result.timestamps,
+          source: step.id,
+          quality,
+          durationSeconds: meta?.durationSeconds,
+          language: captionTracks[0]?.language,
+        };
+        onProgress?.(step.id, "success", { segments: result.timestamps.length, quality });
+        // Fire and forget cache write
+        writeCache(videoId, payload);
+        return { ok: true, payload };
+      }
+      onProgress?.(step.id, "fail");
+    } catch (err) {
+      onProgress?.(step.id, "fail", { error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  const availableLanguages = Array.from(new Set(captionTracks.map((t) => t.language)));
+  if (availableLanguages.length > 0) {
+    return {
+      ok: false,
+      code: "CAPTIONS_BLOCKED",
+      message: `Captions exist for this video (${availableLanguages.join(", ")}), but YouTube blocked transcript download from the server. Please upload the video directly instead.`,
+      extra: { availableLanguages, retryable: true },
+    };
+  }
+  return {
+    ok: false,
+    code: "CAPTIONS_UNAVAILABLE",
+    message: "No captions are available for this video. Please choose a video with captions or upload the video directly.",
+    extra: { availableLanguages: [], retryable: false },
+  };
+}
+
+async function processPlaylist(playlistId: string, userId: string | undefined, startTime: number): Promise<Response> {
+  console.log(`[youtube-transcript] Processing playlist: ${playlistId}`);
+  const items = await fetchPlaylistVideoIds(playlistId, 25);
+  if (items.length === 0) {
+    return softFailureResponse(
+      "Could not load this playlist. It may be private, empty, or the YouTube API key is missing.",
+      "PLAYLIST_EMPTY",
+      { playlistId },
+    );
+  }
+
+  const results: Array<{
+    videoId: string;
+    title: string;
+    success: boolean;
+    segments: number;
+    quality?: QualityScore;
+    error?: string;
+  }> = [];
+
+  const combinedParts: string[] = [];
+  const combinedTimestamps: TranscriptSegment[] = [];
+
+  for (const item of items) {
+    const r = await processSingleVideo(item.id, userId);
+    if (r.ok) {
+      combinedParts.push(`\n\n=== ${item.title} (https://youtu.be/${item.id}) ===\n\n${r.payload.text}`);
+      // Prefix timestamps with title for readability
+      for (const seg of r.payload.timestamps) {
+        combinedTimestamps.push({ time: `[${item.title.slice(0, 30)}] ${seg.time}`, text: seg.text });
+      }
+      results.push({
+        videoId: item.id,
+        title: item.title,
+        success: true,
+        segments: r.payload.timestamps.length,
+        quality: r.payload.quality,
+      });
+    } else {
+      results.push({
+        videoId: item.id,
+        title: item.title,
+        success: false,
+        segments: 0,
+        error: r.code,
+      });
+    }
+  }
+
+  const successCount = results.filter((r) => r.success).length;
+  if (successCount === 0) {
+    return softFailureResponse(
+      "Could not extract transcripts for any video in this playlist.",
+      "PLAYLIST_FAILED",
+      { playlistId, results },
+    );
+  }
+
+  const elapsed = Date.now() - startTime;
+  console.log(`[youtube-transcript] Playlist done in ${elapsed}ms: ${successCount}/${items.length} videos`);
+
+  // Aggregate quality across successful videos
+  const qualities = results.filter((r) => r.quality).map((r) => r.quality!);
+  const avgCoverage = qualities.length ? qualities.reduce((s, q) => s + q.coverage, 0) / qualities.length : 0;
+  const totalSegments = combinedTimestamps.length;
+  const aggQuality: QualityScore = {
+    coverage: Number(avgCoverage.toFixed(2)),
+    durationMatch: Number(
+      (qualities.reduce((s, q) => s + q.durationMatch, 0) / Math.max(1, qualities.length)).toFixed(2),
+    ),
+    missingSegments: qualities.reduce((s, q) => s + q.missingSegments, 0),
+    segmentCount: totalSegments,
+    rating: avgCoverage >= 0.85 ? "excellent" : avgCoverage >= 0.65 ? "good" : avgCoverage >= 0.4 ? "fair" : "poor",
+  };
+
+  return jsonResponse({
+    success: true,
+    playlistId,
+    playlist: { totalVideos: items.length, processedVideos: successCount, results },
+    text: combinedParts.join("").trim(),
+    timestamps: combinedTimestamps,
+    quality: aggQuality,
+    source: "playlist",
+  });
+}
+
+function handleStream(youtubeUrl: string, userId: string | undefined, startTime: number): Response {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (event: string, data: Record<string, unknown>) => {
+        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+      };
+
+      try {
+        const videoId = extractVideoId(youtubeUrl);
+        const playlistId = extractPlaylistId(youtubeUrl);
+
+        if (!videoId && !playlistId) {
+          send("error", { code: "INVALID_URL", message: "Invalid YouTube URL." });
+          controller.close();
+          return;
+        }
+
+        if (playlistId && !videoId) {
+          send("progress", { step: "playlist", status: "start" });
+          // For SSE we just run normally then emit final
+          const items = await fetchPlaylistVideoIds(playlistId, 25);
+          send("progress", { step: "playlist", status: "success", info: { videos: items.length } });
+          for (const item of items) {
+            send("progress", { step: "video", status: "start", info: { videoId: item.id, title: item.title } });
+            const r = await processSingleVideo(item.id, userId, (s, st, info) =>
+              send("progress", { step: `${item.id}:${s}`, status: st, info }),
+            );
+            send("progress", {
+              step: "video",
+              status: r.ok ? "success" : "fail",
+              info: { videoId: item.id, error: r.ok ? undefined : r.code },
+            });
+          }
+          send("done", { elapsed: Date.now() - startTime });
+          controller.close();
+          return;
+        }
+
+        const result = await processSingleVideo(videoId!, userId, (step, status, info) =>
+          send("progress", { step, status, info }),
+        );
+        if (result.ok) {
+          send("result", { success: true, videoId, ...result.payload });
+        } else {
+          send("result", { success: false, code: result.code, message: result.message, ...(result.extra ?? {}) });
+        }
+        send("done", { elapsed: Date.now() - startTime });
+        controller.close();
+      } catch (err) {
+        send("error", { message: err instanceof Error ? err.message : "Unknown error" });
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+    },
+  });
+}
