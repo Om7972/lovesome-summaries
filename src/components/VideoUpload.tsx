@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { Upload, Video, Loader2, Youtube, AlertTriangle, CheckCircle2, XCircle, Circle, ListVideo, Gauge } from "lucide-react";
+import { Upload, Video, Loader2, Youtube, AlertTriangle, CheckCircle2, XCircle, Circle, ListVideo, Gauge, Download, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -7,6 +7,10 @@ import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { motion, AnimatePresence } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
+import { downloadTranscriptSRT, downloadTranscriptVTT } from "@/lib/transcript-export";
+import { track } from "@/lib/analytics";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "@/hooks/use-toast";
 
 type ProgressEvent = {
   step: string;
@@ -21,6 +25,8 @@ type QualityScore = {
   segmentCount: number;
   rating: "excellent" | "good" | "fair" | "poor";
 };
+
+type TranscriptSegment = { time: string; text: string };
 
 interface VideoUploadProps {
   onVideoSelect: (file: File) => void;
@@ -101,6 +107,8 @@ export const VideoUpload = ({
   const [activeTab, setActiveTab] = useState("youtube");
   const [progressSteps, setProgressSteps] = useState<ProgressEvent[]>([]);
   const [quality, setQuality] = useState<QualityScore | null>(null);
+  const [transcript, setTranscript] = useState<TranscriptSegment[]>([]);
+  const [cacheBusy, setCacheBusy] = useState(false);
 
   const videoId = useMemo(() => extractYouTubeId(youtubeUrl), [youtubeUrl]);
   const playlistId = useMemo(() => extractPlaylistId(youtubeUrl), [youtubeUrl]);
@@ -144,8 +152,38 @@ export const VideoUpload = ({
               const eventName = eventLine.slice(6).trim();
               try {
                 const data = JSON.parse(dataLine.slice(5).trim());
-                if (eventName === "progress") setProgressSteps((prev) => [...prev, data]);
-                if (eventName === "result" && data?.quality) setQuality(data.quality);
+                if (eventName === "progress") {
+                  setProgressSteps((prev) => [...prev, data]);
+                  track("transcript_progress", {
+                    step: data.step,
+                    status: data.status,
+                    videoId,
+                  });
+                  if (data.status === "fail" && data.step && data.step !== "cache") {
+                    track("transcript_fallback_failed", {
+                      step: data.step,
+                      videoId,
+                      error: data.info?.error,
+                    });
+                  }
+                }
+                if (eventName === "result") {
+                  if (data?.quality) {
+                    setQuality(data.quality);
+                    track("transcript_quality", {
+                      rating: data.quality.rating,
+                      coverage: data.quality.coverage,
+                      durationMatch: data.quality.durationMatch,
+                      missingSegments: data.quality.missingSegments,
+                      segmentCount: data.quality.segmentCount,
+                      source: data.source,
+                      videoId,
+                    });
+                  }
+                  if (Array.isArray(data?.timestamps)) {
+                    setTranscript(data.timestamps);
+                  }
+                }
               } catch { /* ignore parse errors */ }
             }
           }
@@ -199,6 +237,48 @@ export const VideoUpload = ({
     }
   };
 
+  const handleRetryFresh = () => {
+    if (!youtubeUrl.trim()) return;
+    track("transcript_retry_fresh", { videoId, reason: quality?.rating });
+    setQuality(null);
+    setTranscript([]);
+    setProgressSteps([]);
+    onClearBlocked?.();
+    onYouTubeSubmit(youtubeUrl.trim());
+  };
+
+  const handleClearCache = async () => {
+    if (!videoId) return;
+    setCacheBusy(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("youtube-transcript", {
+        body: { action: "invalidate-cache", videoId },
+      });
+      if (error || data?.success === false) throw new Error(data?.message ?? error?.message ?? "Failed");
+      track("transcript_cache_cleared", { videoId });
+      toast({ title: "Cache cleared", description: "Next fetch will pull a fresh transcript." });
+    } catch (err) {
+      toast({
+        title: "Could not clear cache",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setCacheBusy(false);
+    }
+  };
+
+  const handleExport = (format: "srt" | "vtt") => {
+    if (transcript.length === 0) {
+      toast({ title: "No transcript segments available to export", variant: "destructive" });
+      return;
+    }
+    const base = videoId ? `transcript-${videoId}` : "transcript";
+    if (format === "srt") downloadTranscriptSRT(transcript, base);
+    else downloadTranscriptVTT(transcript, base);
+    track("transcript_exported", { format, videoId, segments: transcript.length });
+  };
+
   const handleSwitchToUpload = () => {
     onClearBlocked?.();
     setActiveTab("upload");
@@ -245,6 +325,21 @@ export const VideoUpload = ({
                 )}
               </Button>
             </div>
+
+            {videoId && !isProcessing && (
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleClearCache}
+                  disabled={cacheBusy}
+                  className="gap-1.5 text-xs"
+                >
+                  {cacheBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                  Clear cached transcript
+                </Button>
+              </div>
+            )}
 
             {/* Blocked message */}
             <AnimatePresence>
@@ -382,9 +477,27 @@ export const VideoUpload = ({
                   </div>
                 </div>
                 {quality.rating === "poor" && (
-                  <p className="text-xs text-destructive">
-                    Low quality transcript — the summary may be incomplete. Consider uploading the video directly.
-                  </p>
+                  <div className="space-y-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+                    <p className="text-xs text-destructive">
+                      Low quality transcript — only {Math.round(quality.coverage * 100)}% coverage with
+                      {" "}{quality.missingSegments} gap{quality.missingSegments === 1 ? "" : "s"} larger than 30s.
+                      Cached data may be incomplete; a fresh fetch often improves results.
+                    </p>
+                    <Button onClick={handleRetryFresh} size="sm" variant="outline" className="gap-1.5 text-xs">
+                      <RefreshCw className="h-3.5 w-3.5" /> Retry with fresh fetch
+                    </Button>
+                  </div>
+                )}
+                {transcript.length > 0 && (
+                  <div className="flex flex-wrap gap-2 pt-2 border-t">
+                    <span className="text-xs text-muted-foreground self-center">Export transcript:</span>
+                    <Button variant="outline" size="sm" onClick={() => handleExport("srt")} className="gap-1.5 text-xs">
+                      <Download className="h-3.5 w-3.5" /> SRT
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => handleExport("vtt")} className="gap-1.5 text-xs">
+                      <Download className="h-3.5 w-3.5" /> VTT
+                    </Button>
+                  </div>
                 )}
               </div>
             )}
