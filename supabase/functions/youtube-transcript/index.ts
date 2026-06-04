@@ -580,13 +580,34 @@ serve(async (req) => {
     const youtubeUrl = payload?.youtubeUrl;
     const userId = payload?.userId;
     const stream = payload?.stream === true;
+    const action = typeof payload?.action === "string" ? payload.action : undefined;
+    const forceFresh = payload?.forceFresh === true;
+
+    // Cache invalidation endpoint
+    if (action === "invalidate-cache") {
+      const videoId = extractVideoId(youtubeUrl ?? "") ?? (typeof payload?.videoId === "string" ? payload.videoId : null);
+      if (!videoId) {
+        return softFailureResponse("A YouTube URL or videoId is required to invalidate the cache.", "MISSING_URL");
+      }
+      try {
+        const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+        const { error } = await supabase.from("transcript_cache").delete().eq("video_id", videoId);
+        if (error) throw error;
+        return jsonResponse({ success: true, videoId, invalidated: true });
+      } catch (err) {
+        return softFailureResponse(
+          `Failed to invalidate cache: ${err instanceof Error ? err.message : String(err)}`,
+          "INVALIDATE_FAILED",
+        );
+      }
+    }
 
     if (!youtubeUrl || typeof youtubeUrl !== "string") {
       return softFailureResponse("YouTube URL is required.", "MISSING_URL");
     }
 
     if (stream) {
-      return handleStream(youtubeUrl, userId, startTime);
+      return handleStream(youtubeUrl, userId, startTime, forceFresh);
     }
 
     const videoId = extractVideoId(youtubeUrl);
@@ -594,7 +615,7 @@ serve(async (req) => {
 
     // Playlist mode: process up to 25 videos and return a combined transcript
     if (playlistId && !videoId) {
-      return await processPlaylist(playlistId, userId, startTime);
+      return await processPlaylist(playlistId, userId, startTime, forceFresh);
     }
     if (playlistId && videoId) {
       // URL has both v= and list= — prefer single video but include playlist flag
@@ -607,7 +628,7 @@ serve(async (req) => {
 
     console.log(`[youtube-transcript] Processing video: ${videoId}`);
 
-    const result = await processSingleVideo(videoId, userId);
+    const result = await processSingleVideo(videoId, userId, undefined, forceFresh);
     const elapsed = Date.now() - startTime;
     if (result.ok) {
       console.log(`[youtube-transcript] Success in ${elapsed}ms via ${result.payload.source}`);
@@ -679,14 +700,15 @@ async function processSingleVideo(
   videoId: string,
   _userId?: string,
   onProgress?: (step: string, status: "start" | "success" | "fail", info?: Record<string, unknown>) => void,
+  forceFresh = false,
 ): Promise<ProcessResult> {
   onProgress?.("cache", "start");
-  const cached = await readCache(videoId);
-  if (cached) {
+  const cached = forceFresh ? null : await readCache(videoId);
+  if (cached && !forceFresh) {
     onProgress?.("cache", "success", { source: cached.source });
     return { ok: true, payload: { ...cached, cached: true } };
   }
-  onProgress?.("cache", "fail");
+  onProgress?.("cache", "fail", forceFresh ? { skipped: true } : undefined);
 
   onProgress?.("metadata", "start");
   const [meta, captionTracks] = await Promise.all([
@@ -747,7 +769,7 @@ async function processSingleVideo(
   };
 }
 
-async function processPlaylist(playlistId: string, userId: string | undefined, startTime: number): Promise<Response> {
+async function processPlaylist(playlistId: string, userId: string | undefined, startTime: number, forceFresh = false): Promise<Response> {
   console.log(`[youtube-transcript] Processing playlist: ${playlistId}`);
   const items = await fetchPlaylistVideoIds(playlistId, 25);
   if (items.length === 0) {
@@ -771,7 +793,7 @@ async function processPlaylist(playlistId: string, userId: string | undefined, s
   const combinedTimestamps: TranscriptSegment[] = [];
 
   for (const item of items) {
-    const r = await processSingleVideo(item.id, userId);
+    const r = await processSingleVideo(item.id, userId, undefined, forceFresh);
     if (r.ok) {
       combinedParts.push(`\n\n=== ${item.title} (https://youtu.be/${item.id}) ===\n\n${r.payload.text}`);
       // Prefix timestamps with title for readability
@@ -833,7 +855,7 @@ async function processPlaylist(playlistId: string, userId: string | undefined, s
   });
 }
 
-function handleStream(youtubeUrl: string, userId: string | undefined, startTime: number): Response {
+function handleStream(youtubeUrl: string, userId: string | undefined, startTime: number, forceFresh = false): Response {
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
@@ -860,6 +882,7 @@ function handleStream(youtubeUrl: string, userId: string | undefined, startTime:
             send("progress", { step: "video", status: "start", info: { videoId: item.id, title: item.title } });
             const r = await processSingleVideo(item.id, userId, (s, st, info) =>
               send("progress", { step: `${item.id}:${s}`, status: st, info }),
+              forceFresh,
             );
             send("progress", {
               step: "video",
@@ -874,6 +897,7 @@ function handleStream(youtubeUrl: string, userId: string | undefined, startTime:
 
         const result = await processSingleVideo(videoId!, userId, (step, status, info) =>
           send("progress", { step, status, info }),
+          forceFresh,
         );
         if (result.ok) {
           send("result", { success: true, videoId, ...result.payload });
