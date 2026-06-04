@@ -700,14 +700,15 @@ async function processSingleVideo(
   videoId: string,
   _userId?: string,
   onProgress?: (step: string, status: "start" | "success" | "fail", info?: Record<string, unknown>) => void,
+  forceFresh = false,
 ): Promise<ProcessResult> {
   onProgress?.("cache", "start");
-  const cached = await readCache(videoId);
-  if (cached) {
+  const cached = forceFresh ? null : await readCache(videoId);
+  if (cached && !forceFresh) {
     onProgress?.("cache", "success", { source: cached.source });
     return { ok: true, payload: { ...cached, cached: true } };
   }
-  onProgress?.("cache", "fail");
+  onProgress?.("cache", "fail", forceFresh ? { skipped: true } : undefined);
 
   onProgress?.("metadata", "start");
   const [meta, captionTracks] = await Promise.all([
@@ -768,7 +769,7 @@ async function processSingleVideo(
   };
 }
 
-async function processPlaylist(playlistId: string, userId: string | undefined, startTime: number): Promise<Response> {
+async function processPlaylist(playlistId: string, userId: string | undefined, startTime: number, forceFresh = false): Promise<Response> {
   console.log(`[youtube-transcript] Processing playlist: ${playlistId}`);
   const items = await fetchPlaylistVideoIds(playlistId, 25);
   if (items.length === 0) {
@@ -792,7 +793,7 @@ async function processPlaylist(playlistId: string, userId: string | undefined, s
   const combinedTimestamps: TranscriptSegment[] = [];
 
   for (const item of items) {
-    const r = await processSingleVideo(item.id, userId);
+    const r = await processSingleVideo(item.id, userId, undefined, forceFresh);
     if (r.ok) {
       combinedParts.push(`\n\n=== ${item.title} (https://youtu.be/${item.id}) ===\n\n${r.payload.text}`);
       // Prefix timestamps with title for readability
@@ -854,7 +855,7 @@ async function processPlaylist(playlistId: string, userId: string | undefined, s
   });
 }
 
-function handleStream(youtubeUrl: string, userId: string | undefined, startTime: number): Response {
+function handleStream(youtubeUrl: string, userId: string | undefined, startTime: number, forceFresh = false): Response {
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
@@ -881,6 +882,7 @@ function handleStream(youtubeUrl: string, userId: string | undefined, startTime:
             send("progress", { step: "video", status: "start", info: { videoId: item.id, title: item.title } });
             const r = await processSingleVideo(item.id, userId, (s, st, info) =>
               send("progress", { step: `${item.id}:${s}`, status: st, info }),
+              forceFresh,
             );
             send("progress", {
               step: "video",
@@ -895,6 +897,7 @@ function handleStream(youtubeUrl: string, userId: string | undefined, startTime:
 
         const result = await processSingleVideo(videoId!, userId, (step, status, info) =>
           send("progress", { step, status, info }),
+          forceFresh,
         );
         if (result.ok) {
           send("result", { success: true, videoId, ...result.payload });
