@@ -580,13 +580,34 @@ serve(async (req) => {
     const youtubeUrl = payload?.youtubeUrl;
     const userId = payload?.userId;
     const stream = payload?.stream === true;
+    const action = typeof payload?.action === "string" ? payload.action : undefined;
+    const forceFresh = payload?.forceFresh === true;
+
+    // Cache invalidation endpoint
+    if (action === "invalidate-cache") {
+      const videoId = extractVideoId(youtubeUrl ?? "") ?? (typeof payload?.videoId === "string" ? payload.videoId : null);
+      if (!videoId) {
+        return softFailureResponse("A YouTube URL or videoId is required to invalidate the cache.", "MISSING_URL");
+      }
+      try {
+        const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+        const { error } = await supabase.from("transcript_cache").delete().eq("video_id", videoId);
+        if (error) throw error;
+        return jsonResponse({ success: true, videoId, invalidated: true });
+      } catch (err) {
+        return softFailureResponse(
+          `Failed to invalidate cache: ${err instanceof Error ? err.message : String(err)}`,
+          "INVALIDATE_FAILED",
+        );
+      }
+    }
 
     if (!youtubeUrl || typeof youtubeUrl !== "string") {
       return softFailureResponse("YouTube URL is required.", "MISSING_URL");
     }
 
     if (stream) {
-      return handleStream(youtubeUrl, userId, startTime);
+      return handleStream(youtubeUrl, userId, startTime, forceFresh);
     }
 
     const videoId = extractVideoId(youtubeUrl);
@@ -594,7 +615,7 @@ serve(async (req) => {
 
     // Playlist mode: process up to 25 videos and return a combined transcript
     if (playlistId && !videoId) {
-      return await processPlaylist(playlistId, userId, startTime);
+      return await processPlaylist(playlistId, userId, startTime, forceFresh);
     }
     if (playlistId && videoId) {
       // URL has both v= and list= — prefer single video but include playlist flag
@@ -607,7 +628,7 @@ serve(async (req) => {
 
     console.log(`[youtube-transcript] Processing video: ${videoId}`);
 
-    const result = await processSingleVideo(videoId, userId);
+    const result = await processSingleVideo(videoId, userId, undefined, forceFresh);
     const elapsed = Date.now() - startTime;
     if (result.ok) {
       console.log(`[youtube-transcript] Success in ${elapsed}ms via ${result.payload.source}`);
