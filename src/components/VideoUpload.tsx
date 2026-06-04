@@ -237,9 +237,17 @@ export const VideoUpload = ({
     }
   };
 
-  const handleRetryFresh = () => {
+  const handleRetryFresh = async () => {
     if (!youtubeUrl.trim()) return;
     track("transcript_retry_fresh", { videoId, reason: quality?.rating });
+    // Invalidate cache first so the parent's fetch also pulls fresh.
+    if (videoId) {
+      try {
+        await supabase.functions.invoke("youtube-transcript", {
+          body: { action: "invalidate-cache", videoId },
+        });
+      } catch { /* non-fatal */ }
+    }
     setQuality(null);
     setTranscript([]);
     setProgressSteps([]);
