@@ -2,12 +2,14 @@ import { motion } from "framer-motion";
 import { Sparkles, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext";
 
 interface HeroSectionProps {
   onGetStarted: () => void;
 }
 
 export function HeroSection({ onGetStarted }: HeroSectionProps) {
+  const { user } = useAuth();
   return (
     <section className="relative overflow-hidden pt-20 pb-32">
       {/* Mesh background */}
@@ -65,8 +67,8 @@ export function HeroSection({ onGetStarted }: HeroSectionProps) {
               asChild
               className="animated-gradient text-primary-foreground px-8 py-6 text-base font-semibold btn-glow group"
             >
-              <Link to="/register">
-                Get Started Free
+              <Link to={user ? "/dashboard" : "/register"}>
+                {user ? "Go to Dashboard" : "Get Started Free"}
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
               </Link>
             </Button>
