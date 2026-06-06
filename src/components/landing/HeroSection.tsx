@@ -31,7 +31,7 @@ export function HeroSection({ onGetStarted }: HeroSectionProps) {
             className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-card mb-8"
           >
             <Sparkles className="h-4 w-4 text-primary" />
-            <span className="text-sm font-medium text-muted-foreground">Powered by Advanced AI</span>
+            <span className="text-sm font-medium text-muted-foreground">Lovesome Summaries · Powered by Advanced AI</span>
           </motion.div>
 
           <motion.h1

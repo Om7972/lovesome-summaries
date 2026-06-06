@@ -29,8 +29,11 @@ const Index = () => {
         <div className="container mx-auto px-4 py-3 flex justify-between items-center">
 
           {/* Logo */}
-          <Link to="/" className="flex items-center">
+          <Link to="/" className="flex items-center gap-2.5">
             <img src={logo} alt="Lovesome Logo" className="h-10 w-auto object-contain rounded-lg" />
+            <span className="font-display font-bold text-xl tracking-tight gradient-text">
+              Lovesome Summaries
+            </span>
           </Link>
 
           {/* Actions */}

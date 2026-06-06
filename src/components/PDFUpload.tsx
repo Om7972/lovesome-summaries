@@ -199,6 +199,8 @@ export const PDFUpload = ({ onFileSelect, isProcessing }: PDFUploadProps) => {
                 accept=".pdf"
                 onChange={handleFileInput}
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                title="Upload PDF file"
+                aria-label="Upload PDF file"
               />
 
               <div className="flex flex-col items-center gap-6 text-center">

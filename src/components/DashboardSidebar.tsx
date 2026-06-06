@@ -5,6 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
 import logo from "@/assets/Lovesome.svg";
+import { Progress } from "@/components/ui/progress";
 
 const navItems = [
   { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
@@ -34,8 +35,11 @@ export function DashboardSidebar() {
   return (
     <aside className="hidden lg:flex flex-col w-64 border-r border-border/50 bg-card/50 backdrop-blur-sm h-screen sticky top-0">
       <div className="p-6 border-b border-border/30">
-        <Link to="/" className="flex items-center">
+        <Link to="/" className="flex items-center gap-2.5">
           <img src={logo} alt="Lovesome Logo" className="h-10 w-auto object-contain rounded-lg" />
+          <span className="font-display font-bold text-lg tracking-tight gradient-text">
+            Lovesome Summaries
+          </span>
         </Link>
       </div>
 
@@ -73,9 +77,7 @@ export function DashboardSidebar() {
             <span className="text-sm text-muted-foreground mb-0.5">/ {profile?.is_premium ? "∞" : "5"}</span>
           </div>
           {!profile?.is_premium && (
-            <div className="w-full bg-muted rounded-full h-1.5">
-              <div className="bg-primary rounded-full h-1.5 transition-all" style={{ width: `${Math.min((todaySummaryCount / 5) * 100, 100)}%` }} />
-            </div>
+            <Progress value={Math.min((todaySummaryCount / 5) * 100, 100)} className="h-1.5" />
           )}
           {!canSummarize && <p className="text-xs text-destructive">Daily limit reached</p>}
         </div>

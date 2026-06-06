@@ -530,6 +530,8 @@ export const VideoUpload = ({
               onChange={handleFileSelect}
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
               disabled={isProcessing}
+              title="Upload video file"
+              aria-label="Upload video file"
             />
 
             <div className="flex flex-col items-center gap-4">
