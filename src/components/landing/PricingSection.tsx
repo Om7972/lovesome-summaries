@@ -1,6 +1,11 @@
 import { motion } from "framer-motion";
-import { Check, Star } from "lucide-react";
+import { Check, Star, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext";
+import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
+import { useState } from "react";
 
 const plans = [
   {
@@ -53,6 +58,130 @@ const plans = [
 ];
 
 export function PricingSection() {
+  const { user, profile, refreshUsage } = useAuth();
+  const { toast } = useToast();
+  const navigate = useNavigate();
+  const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
+
+  const handlePlanClick = async (plan: typeof plans[0]) => {
+    if (plan.name === "Free") {
+      if (user) {
+        toast({
+          title: "Plan Status",
+          description: profile?.is_premium 
+            ? "You are currently on the Pro plan." 
+            : "You are already using the Free plan.",
+        });
+      } else {
+        navigate("/register");
+      }
+      return;
+    }
+
+    if (!user) {
+      toast({
+        title: "Authentication Required",
+        description: "Please sign in to subscribe.",
+      });
+      navigate("/login");
+      return;
+    }
+
+    if (profile?.is_premium) {
+      toast({
+        title: "Already Subscribed",
+        description: "You already have an active subscription.",
+      });
+      return;
+    }
+
+    setLoadingPlan(plan.name);
+
+    // Get currency and price
+    const currency = import.meta.env.VITE_RAZORPAY_CURRENCY || "INR";
+    let amount = 0;
+    
+    if (plan.name === "Pro") {
+      const proAmt = import.meta.env.VITE_RAZORPAY_AMOUNT_PRO || "1599";
+      amount = parseInt(proAmt) * 100;
+    } else if (plan.name === "Team") {
+      const teamAmt = import.meta.env.VITE_RAZORPAY_AMOUNT_TEAM || "3999";
+      amount = parseInt(teamAmt) * 100;
+    }
+
+    const options = {
+      key: import.meta.env.VITE_RAZORPAY_KEY_ID || "rzp_test_pDeh9vFv7o8nSj",
+      amount: amount,
+      currency: currency,
+      name: "Lovesome Summaries",
+      description: `${plan.name} Subscription`,
+      image: "/src/assets/Lovesome.svg",
+      prefill: {
+        name: profile?.full_name || "",
+        email: profile?.email || "",
+      },
+      theme: {
+        color: "#9b87f5",
+      },
+      handler: async function (response: any) {
+        try {
+          // Update profile in supabase
+          const { error } = await supabase
+            .from("profiles")
+            .update({ is_premium: true, updated_at: new Date().toISOString() })
+            .eq("id", user.id);
+
+          if (error) throw error;
+
+          toast({
+            title: "Subscription Activated",
+            description: `You have successfully upgraded to ${plan.name}!`,
+          });
+          
+          if (refreshUsage) {
+            await refreshUsage();
+          }
+
+          setTimeout(() => {
+            window.location.reload();
+          }, 1500);
+        } catch (err: any) {
+          console.error("Database update error:", err);
+          toast({
+            title: "Activation Failed",
+            description: "Payment was successful, but we could not update your account. Please contact support.",
+            variant: "destructive",
+          });
+        } finally {
+          setLoadingPlan(null);
+        }
+      },
+      modal: {
+        ondismiss: function () {
+          setLoadingPlan(null);
+          toast({
+            title: "Payment Cancelled",
+            description: "The payment flow was cancelled.",
+            variant: "destructive",
+          });
+        },
+      },
+    };
+
+    try {
+      const rzp = new (window as any).Razorpay(options);
+      rzp.open();
+    } catch (err) {
+      console.error("Razorpay initiation error:", err);
+      toast({
+        title: "Checkout Error",
+        description: "Failed to load payment gateway. Please check your network connection.",
+        variant: "destructive",
+      });
+      setLoadingPlan(null);
+    }
+  };
+
   return (
     <section className="py-24 relative" id="pricing">
       <div className="container mx-auto px-4">
@@ -115,8 +244,15 @@ export function PricingSection() {
                     : "glass-card hover:bg-muted/50"
                 }`}
                 variant={plan.popular ? "default" : "outline"}
+                onClick={() => handlePlanClick(plan)}
+                disabled={loadingPlan !== null}
               >
-                {plan.cta}
+                {loadingPlan === plan.name ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : null}
+                {plan.name === "Free" 
+                  ? (user && !profile?.is_premium ? "Active Plan" : "Get Started") 
+                  : (profile?.is_premium && plan.name === "Pro" ? "Current Plan" : plan.cta)}
               </Button>
             </motion.div>
           ))}
