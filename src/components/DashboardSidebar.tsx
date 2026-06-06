@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthContext";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
+import logo from "@/assets/Lovesome.svg";
 
 const navItems = [
   { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
@@ -33,11 +34,8 @@ export function DashboardSidebar() {
   return (
     <aside className="hidden lg:flex flex-col w-64 border-r border-border/50 bg-card/50 backdrop-blur-sm h-screen sticky top-0">
       <div className="p-6 border-b border-border/30">
-        <Link to="/" className="flex items-center gap-2.5">
-          <div className="p-2 rounded-xl animated-gradient">
-            <FileText className="h-4 w-4 text-primary-foreground" />
-          </div>
-          <span className="text-lg font-bold font-display gradient-text">Summarify AI</span>
+        <Link to="/" className="flex items-center">
+          <img src={logo} alt="Lovesome Logo" className="h-10 w-auto object-contain rounded-lg" />
         </Link>
       </div>
 

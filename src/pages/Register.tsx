@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import logo from "@/assets/Lovesome.svg";
 
 export default function Register() {
   const [fullName, setFullName] = useState("");
@@ -76,11 +77,8 @@ export default function Register() {
         className="w-full max-w-md relative z-10"
       >
         <div className="text-center mb-8">
-          <Link to="/" className="inline-flex items-center gap-2.5 mb-6">
-            <div className="p-2 rounded-xl animated-gradient">
-              <FileText className="h-5 w-5 text-primary-foreground" />
-            </div>
-            <span className="text-xl font-bold font-display gradient-text">Summarify AI</span>
+          <Link to="/" className="inline-flex items-center mb-6">
+            <img src={logo} alt="Lovesome Logo" className="h-12 w-auto object-contain rounded-lg" />
           </Link>
           <h1 className="text-2xl font-bold font-display">Create your account</h1>
           <p className="text-muted-foreground mt-1">Start summarizing for free</p>

@@ -11,6 +11,7 @@ import { TestimonialsSection } from "@/components/landing/TestimonialsSection";
 import { FAQSection } from "@/components/landing/FAQSection";
 import { Footer } from "@/components/landing/Footer";
 import { useAuth } from "@/context/AuthContext";
+import logo from "@/assets/Lovesome.svg";
 
 const Index = () => {
   const { user } = useAuth();
@@ -28,12 +29,9 @@ const Index = () => {
         <div className="container mx-auto px-4 py-3 flex justify-between items-center">
 
           {/* Logo */}
-          <div className="flex items-center gap-2">
-            <div className="p-2 rounded-xl animated-gradient">
-              <FileText className="h-5 w-5 text-primary-foreground" />
-            </div>
-            <span className="text-xl font-bold">Summarify AI</span>
-          </div>
+          <Link to="/" className="flex items-center">
+            <img src={logo} alt="Lovesome Logo" className="h-10 w-auto object-contain rounded-lg" />
+          </Link>
 
           {/* Actions */}
           <div className="flex items-center gap-3">

@@ -7,7 +7,7 @@ const plans = [
     name: "Free",
     price: "$0",
     period: "forever",
-    desc: "Perfect for trying out Summarify AI",
+    desc: "Perfect for trying out Lovesome Summaries",
     features: [
       "5 summaries per day",
       "PDF summarization",

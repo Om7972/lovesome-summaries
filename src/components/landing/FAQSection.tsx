@@ -8,7 +8,7 @@ import {
 
 const faqs = [
   {
-    q: "What file formats does Summarify AI support?",
+    q: "What file formats does Lovesome Summaries support?",
     a: "We support PDF documents, video files (MP4, MOV, AVI, MKV, WebM), and YouTube links. Simply upload your file or paste a YouTube URL to get started.",
   },
   {
@@ -20,7 +20,7 @@ const faqs = [
     a: "Yes. Your documents are processed in real-time and are not stored on our servers. All data transmission is encrypted end-to-end.",
   },
   {
-    q: "Can I use Summarify AI for free?",
+    q: "Can I use Lovesome Summaries for free?",
     a: "Absolutely! Our free plan includes 5 summaries per day with full access to PDF and YouTube summarization, interactive Q&A, and text export.",
   },
   {
@@ -48,7 +48,7 @@ export function FAQSection() {
             Frequently Asked Questions
           </h2>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            Everything you need to know about Summarify AI
+            Everything you need to know about Lovesome Summaries
           </p>
         </motion.div>
 

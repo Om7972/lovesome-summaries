@@ -6,6 +6,7 @@ import { useAuth } from "@/context/AuthContext";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
+import logo from "@/assets/Lovesome.svg";
 
 const navItems = [
   { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
@@ -36,11 +37,8 @@ export function MobileNav() {
   return (
     <header className="lg:hidden sticky top-0 z-50 border-b border-border/30 backdrop-blur-xl bg-background/60 px-4 py-3">
       <div className="flex items-center justify-between">
-        <Link to="/" className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg animated-gradient">
-            <FileText className="h-4 w-4 text-primary-foreground" />
-          </div>
-          <span className="font-bold font-display gradient-text">Summarify AI</span>
+        <Link to="/" className="flex items-center">
+          <img src={logo} alt="Lovesome Logo" className="h-8 w-auto object-contain rounded-lg" />
         </Link>
         <div className="flex items-center gap-2">
           <ThemeToggle />

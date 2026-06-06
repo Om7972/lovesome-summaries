@@ -6,7 +6,7 @@ const testimonials = [
     name: "Sarah Chen",
     role: "Product Manager",
     avatar: "SC",
-    quote: "Summarify AI saves me 3+ hours a day. I can quickly digest lengthy reports and make faster decisions.",
+    quote: "Lovesome Summaries saves me 3+ hours a day. I can quickly digest lengthy reports and make faster decisions.",
     stars: 5,
   },
   {
@@ -40,7 +40,7 @@ export function TestimonialsSection() {
             Loved by Thousands
           </h2>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            See what our users are saying about Summarify AI
+            See what our users are saying about Lovesome Summaries
           </p>
         </motion.div>
 
